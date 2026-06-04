@@ -1,0 +1,23 @@
+# Pfade zu Ihren Quelldaten (anpassbar)
+werte_csv: "C:/Users/jenni/OneDrive - Jennifer Westphal/Jennifer Westphal - MasterSchool/80_Abschlussarbeit/Material/DAX_Diplom/Werte.csv"
+diplomarbeit_pdf: "C:/Users/jenni/OneDrive - Jennifer Westphal/Jennifer Westphal - MasterSchool/80_Abschlussarbeit/Peter_Westphal_Diplomarbeit Jennifer Westphal/Diplomarbeit Jennifer Westphal/Diplomarbeit als PDF/Diplomarbeit JW 2008.pdf"
+
+csv:
+  sep: ";"
+  encoding: "utf-8-sig"
+  date_column: "Datum1"      # Spalte B
+  value_column: "PDAX"       # Spalte C
+  date_format: "%d.%m.%Y"
+
+output_dir: "output"
+
+# Standard-Cutoff für Phase-0-Demo (letzter Monat mit vollständigem PDAX vor Lücken)
+default_cutoff: "2007-06-30"
+
+# Datenbank (TSLAB_DATABASE_URL ueberschreibt alles)
+database:
+  # PostgreSQL (wenn Server laeuft): use_sqlite auf false setzen
+  use_sqlite: false
+  url: "postgresql+psycopg2://tslab:tslab@localhost:5432/tslab"
+  sqlite_path: "data/tslab.db"
+  # Oder: $env:TSLAB_DATABASE_URL = "sqlite:///data/tslab.db"

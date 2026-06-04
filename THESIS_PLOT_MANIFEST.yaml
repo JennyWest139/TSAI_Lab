@@ -1,0 +1,55 @@
+# Plot- und Modell-Pipeline orientiert an Diplomarbeit JW 2008 (PDAX)
+# Jedes Item wird von scripts/run_phase0_pdax.py bzw. später TSA-Service abgearbeitet.
+
+series: PDAX
+source: Werte.csv
+
+variants:
+  - id: pdax_levels
+    label: "PDAX (Niveau)"
+    transform: levels
+    models: [AR1]
+    plots:
+      - decomposition_additive
+      - histogram
+      - series
+      - acf
+      - pacf
+    # je eigene PNG: {variant}_acf.png, {variant}_pacf.png
+      - spectral_density
+      - fitted_exponential  # Trend approximiert
+
+  - id: pdax_log
+    label: "log(PDAX)"
+    transform: log_levels
+    models: [AR0]
+    plots: [histogram, acf, pacf, spectral_density, periodogram]
+
+  - id: pdax_log_returns
+    label: "kontinuierliche Renditen (log-diff, trendbereinigt)"
+    transform: log_returns_detrended
+    models: [AR0, AR1, ARMA_1_1]
+    plots:
+      - histogram
+      - acf
+      - pacf
+    # je eigene PNG: {variant}_acf.png, {variant}_pacf.png
+      - spectral_density
+      - periodogram
+      - residuals_after_fit
+
+tsa_models:
+  - id: arma
+    library: statsmodels
+    report_sections: [equation, parameters, diagnostics, forecast_holdout, quantile_bands]
+  - id: garch
+    library: arch
+    report_sections: [equation, parameters, diagnostics, forecast_holdout, quantile_bands]
+  - id: arma_garch
+    library: arch
+    report_sections: [equation, parameters, diagnostics, forecast_holdout, quantile_bands]
+
+forecast_quantiles: [0.005, 0.05, 0.5, 0.95, 0.995]
+
+correlation:
+  plots: [lag_table, cross_correlation_chart, acf]
