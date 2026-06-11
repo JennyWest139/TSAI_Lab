@@ -166,8 +166,26 @@ Ausgabe: `output/correlation_<a>_vs_<b>_<start>_to_<end>/`
 
 Verfuegbare Slugs: `python scripts/db_list_series.py`
 
+## Phase 1 (TSA: ARMA, GARCH, ARMA-GARCH)
+
+```powershell
+python scripts/run_tsa.py --from-db --end-date 2007-06-30
+python scripts/run_tsa.py --from-db --models garch,arma-garch
+python scripts/run_tsa.py --from-db --models arma --order 1,1 --garch-order 1,1
+```
+
+Ausgabe: `output/tsa_<start>_to_<cutoff>/`
+
+| Ordner | Modell |
+|--------|--------|
+| `arma11/` | ARMA(1,1) Mittelwert |
+| `garch11/` | GARCH(1,1) Volatilitaet (mean=Zero) |
+| `arma11_garch11/` | ARMA(1,1) + GARCH(1,1) auf Residuen |
+
+Pro Modell: Residuen/Volatilitaet, Prognose mit Quantilbaendern (0,5 % / 5 % / 50 % / 95 % / 99,5 %), `summary.txt`.
+
 ## Nächste Schritte
 
 1. Flask-Dashboard (Upload, Historie, Datumsauswahl in UI)
-2. ARMA / GARCH / ARMA-GARCH + PDF-Berichte
+2. PDF-Berichte (Gleichungen, Parameter, Diagnostik)
 3. KI-Bericht zur Korrelation (optional)
