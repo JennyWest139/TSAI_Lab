@@ -11,8 +11,17 @@ csv:
 
 output_dir: "output"
 
-# Standard-Cutoff für Phase-0-Demo (letzter Monat mit vollständigem PDAX vor Lücken)
+# Standard-Cutoff für extended-Modus (letzter Monat mit vollständigem PDAX vor Lücken)
 default_cutoff: "2007-06-30"
+
+# Analysemodus (thesis | extended) wird in CLI/UI explizit gewählt – siehe analysis_mode.py
+analysis_mode:
+  thesis:
+    start_date: "1987-12-01"
+    end_date: "2007-07-01"
+  extended:
+    start_date: null
+    end_date: null
 
 # Datenbank (TSLAB_DATABASE_URL ueberschreibt alles)
 database:

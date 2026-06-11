@@ -9,6 +9,7 @@ import pandas as pd
 from arch import arch_model
 from scipy import stats
 
+from tslab.services.analysis_mode import AnalysisModeConfig, prepare_garch_input
 from tslab.services.models_ar import _with_monthly_freq
 from tslab.services.models_arma import fit_arma
 
@@ -26,6 +27,7 @@ class GarchFitResult:
     vol_order: tuple[int, int]
     conditional_volatility: pd.Series
     standardized_residuals: pd.Series
+    mean_offset: float = 0.0
 
     @property
     def aic(self) -> float:
@@ -39,13 +41,16 @@ class GarchFitResult:
 
 @dataclass(frozen=True)
 class ArmaGarchFitResult:
-    """ARMA(p,q) fuer Mittelwert + GARCH(r,s) auf ARMA-Residuen."""
+    """ARMA-GARCH: zweistufig (extended) oder gemeinsam via arch (thesis)."""
 
-    arma_result: object
-    garch: GarchFitResult
     arma_order: tuple[int, int]
-    arma_fitted: pd.Series
-    arma_residuals: pd.Series
+    garch: GarchFitResult
+    joint: bool
+    mean_offset: float
+    arma_result: object | None = None
+    arma_fitted: pd.Series | None = None
+    arma_residuals: pd.Series | None = None
+    arch_result: object | None = None
 
     @property
     def label(self) -> str:
@@ -64,25 +69,22 @@ class VolatilityForecast:
     index: pd.DatetimeIndex
 
 
-def _scaled_series(y: pd.Series, scale: float = GARCH_SCALE) -> pd.Series:
-    return _with_monthly_freq(y) * scale
-
-
 def fit_garch(
     y: pd.Series,
+    mode_config: AnalysisModeConfig,
     *,
     p: int = 1,
     q: int = 1,
-    mean: str = "Zero",
     dist: str = "normal",
     scale: float = GARCH_SCALE,
 ) -> GarchFitResult:
-    """GARCH(p,q); bei trendbereinigten Renditen typisch mean='Zero'."""
+    """GARCH(p,q); im thesis-Modus auf mittelwertbereinigten Renditen."""
     clean = _with_monthly_freq(y)
-    scaled = clean * scale
+    garch_y, mean_offset = prepare_garch_input(clean, mode_config)
+    scaled = garch_y * scale
     model = arch_model(
         scaled,
-        mean=mean,
+        mean="Zero",
         vol="GARCH",
         p=p,
         q=q,
@@ -99,15 +101,99 @@ def fit_garch(
     return GarchFitResult(
         result=res,
         scale=scale,
-        mean_model=mean,
+        mean_model="Zero",
         vol_order=(p, q),
         conditional_volatility=cond_vol,
         standardized_residuals=std_resid,
+        mean_offset=mean_offset,
+    )
+
+
+def _fit_arma_garch_two_step(
+    y: pd.Series,
+    mode_config: AnalysisModeConfig,
+    *,
+    arma_order: tuple[int, int],
+    garch_p: int,
+    garch_q: int,
+    dist: str,
+    scale: float,
+) -> ArmaGarchFitResult:
+    clean = _with_monthly_freq(y)
+    arma_res, arma_fitted = fit_arma(clean, arma_order)
+    aligned = clean.loc[arma_fitted.index]
+    resid = (aligned - arma_fitted).rename("arma_residual")
+    garch = fit_garch(
+        resid,
+        mode_config,
+        p=garch_p,
+        q=garch_q,
+        dist=dist,
+        scale=scale,
+    )
+    return ArmaGarchFitResult(
+        arma_order=arma_order,
+        garch=garch,
+        joint=False,
+        mean_offset=0.0,
+        arma_result=arma_res,
+        arma_fitted=arma_fitted,
+        arma_residuals=resid,
+    )
+
+
+def _fit_arma_garch_joint(
+    y: pd.Series,
+    mode_config: AnalysisModeConfig,
+    *,
+    arma_order: tuple[int, int],
+    garch_p: int,
+    garch_q: int,
+    dist: str,
+    scale: float,
+) -> ArmaGarchFitResult:
+    """Gemeinsames ARMA-GARCH via arch (Diplomarbeit / R: arma(1,1)+garch(1,1))."""
+    clean = _with_monthly_freq(y)
+    fit_y, mean_offset = prepare_garch_input(clean, mode_config)
+    p, q = arma_order
+    model = arch_model(
+        fit_y * scale,
+        mean="AR",
+        lags=p,
+        vol="GARCH",
+        p=garch_p,
+        q=garch_q,
+        dist=dist,
+        rescale=False,
+    )
+    res = model.fit(disp="off", update_freq=0)
+    cond_vol = pd.Series(
+        res.conditional_volatility / scale,
+        index=clean.index,
+        name="conditional_volatility",
+    )
+    std_resid = pd.Series(res.std_resid, index=clean.index, name="std_resid")
+    garch = GarchFitResult(
+        result=res,
+        scale=scale,
+        mean_model="AR",
+        vol_order=(garch_p, garch_q),
+        conditional_volatility=cond_vol,
+        standardized_residuals=std_resid,
+        mean_offset=mean_offset,
+    )
+    return ArmaGarchFitResult(
+        arma_order=arma_order,
+        garch=garch,
+        joint=True,
+        mean_offset=mean_offset,
+        arch_result=res,
     )
 
 
 def fit_arma_garch(
     y: pd.Series,
+    mode_config: AnalysisModeConfig,
     *,
     arma_order: tuple[int, int] = (1, 1),
     garch_p: int = 1,
@@ -115,29 +201,24 @@ def fit_arma_garch(
     dist: str = "normal",
     scale: float = GARCH_SCALE,
 ) -> ArmaGarchFitResult:
-    """
-    ARMA-GARCH: ARMA fuer den Mittelwert, GARCH auf die ARMA-Residuen.
-
-    Entspricht der ueblichen zweistufigen Spezifikation in der Diplomarbeit.
-    """
-    clean = _with_monthly_freq(y)
-    arma_res, arma_fitted = fit_arma(clean, arma_order)
-    aligned = clean.loc[arma_fitted.index]
-    resid = (aligned - arma_fitted).rename("arma_residual")
-    garch = fit_garch(
-        resid,
-        p=garch_p,
-        q=garch_q,
-        mean="Zero",
+    if mode_config.arma_garch_joint:
+        return _fit_arma_garch_joint(
+            y,
+            mode_config,
+            arma_order=arma_order,
+            garch_p=garch_p,
+            garch_q=garch_q,
+            dist=dist,
+            scale=scale,
+        )
+    return _fit_arma_garch_two_step(
+        y,
+        mode_config,
+        arma_order=arma_order,
+        garch_p=garch_p,
+        garch_q=garch_q,
         dist=dist,
         scale=scale,
-    )
-    return ArmaGarchFitResult(
-        arma_result=arma_res,
-        garch=garch,
-        arma_order=arma_order,
-        arma_fitted=arma_fitted,
-        arma_residuals=resid,
     )
 
 
@@ -160,14 +241,13 @@ def forecast_garch(
     index: pd.DatetimeIndex,
     quantiles: tuple[float, ...] = DEFAULT_QUANTILES,
 ) -> VolatilityForecast:
-    """GARCH-Prognose (Mittelwert + Varianz + Normal-Quantile)."""
     if steps <= 0:
         empty = pd.Series(dtype=float)
         return VolatilityForecast(empty, empty, {}, index[:0])
 
     fc = fit.result.forecast(horizon=steps, reindex=False)
     mean = pd.Series(
-        fc.mean.iloc[-1].values / fit.scale,
+        fc.mean.iloc[-1].values / fit.scale + fit.mean_offset,
         index=index,
         name="mean",
     )
@@ -191,20 +271,35 @@ def forecast_arma_garch(
     index: pd.DatetimeIndex,
     quantiles: tuple[float, ...] = DEFAULT_QUANTILES,
 ) -> VolatilityForecast:
-    """Kombinierte ARMA-Mittelwert- und GARCH-Varianzprognose."""
     if steps <= 0:
         empty = pd.Series(dtype=float)
         return VolatilityForecast(empty, empty, {}, index[:0])
 
-    arma_fc = fit.arma_result.get_forecast(steps=steps).predicted_mean
-    garch_fc = forecast_garch(
-        fit.garch,
-        steps=steps,
-        index=index,
-        quantiles=quantiles,
-    )
-    mean = pd.Series(arma_fc.values, index=index, name="mean")
-    variance = garch_fc.variance
+    if fit.joint:
+        assert fit.arch_result is not None
+        fc = fit.arch_result.forecast(horizon=steps, reindex=False)
+        mean = pd.Series(
+            fc.mean.iloc[-1].values / fit.garch.scale + fit.mean_offset,
+            index=index,
+            name="mean",
+        )
+        variance = pd.Series(
+            fc.variance.iloc[-1].values / (fit.garch.scale**2),
+            index=index,
+            name="variance",
+        )
+    else:
+        assert fit.arma_result is not None
+        arma_fc = fit.arma_result.get_forecast(steps=steps).predicted_mean
+        garch_fc = forecast_garch(
+            fit.garch,
+            steps=steps,
+            index=index,
+            quantiles=quantiles,
+        )
+        mean = pd.Series(arma_fc.values, index=index, name="mean")
+        variance = garch_fc.variance
+
     return VolatilityForecast(
         mean=mean,
         variance=variance,

@@ -3,8 +3,8 @@
 Phase 0: PDAX aus Werte.csv laden, Cutoff setzen, Kerngrafiken erzeugen.
 
 Aufruf (im Projektroot):
-  python scripts/run_phase0_pdax.py
-  python scripts/run_phase0_pdax.py --cutoff 2005-12-31
+  python scripts/run_phase0_pdax.py --analysis-mode thesis --from-db
+  python scripts/run_phase0_pdax.py --analysis-mode extended --from-db --end-date 2007-06-30
 """
 
 from __future__ import annotations
@@ -21,20 +21,22 @@ if str(ROOT) not in sys.path:
 
 from tslab.config_loader import load_defaults, resolve_output_dir
 from tslab.plots import time_series_plots as plots
-from tslab.plots.series_display import (
-    PDAX_LOG,
-    PDAX_LOG_RETURNS,
-    PDAX_ORIGINAL,
-    SeriesDisplay,
-)
+from tslab.plots.series_display import PDAX_LOG, PDAX_ORIGINAL, SeriesDisplay
 from tslab.db.engine import get_session
+from tslab.services.analysis_mode import (
+    add_analysis_mode_argument,
+    get_analysis_mode_config,
+    prepare_model_returns,
+    resolve_study_dates_for_mode,
+    returns_display,
+)
 from tslab.services.analysis_window import prepare_tsa_split, resolve_study_dates
 from tslab.services.forecast_context import build_forecast_plot_data
 from tslab.services.ingest_werte import load_pdax_series
 from tslab.services.timeseries_store import load_pdax_full
 from tslab.services.models_ar import fit_ar
 from tslab.services.models_arma import fit_arma
-from tslab.services.transforms import log_levels, log_returns_detrended
+from tslab.services.transforms import log_levels
 
 
 def _run_variant(
@@ -93,15 +95,16 @@ def _run_variant(
 def main() -> None:
     cfg = load_defaults()
     parser = argparse.ArgumentParser(description="Phase 0 PDAX-Analyse")
+    add_analysis_mode_argument(parser, required=True)
     parser.add_argument(
         "--start-date",
         default=None,
-        help="Analyse-Start (YYYY-MM-DD); Standard: erstes verfuegbares Datum",
+        help="Analyse-Start (YYYY-MM-DD); sonst Modus-Default",
     )
     parser.add_argument(
         "--end-date",
         default=None,
-        help="Analyse-Ende = Cutoff (YYYY-MM-DD); Standard: letztes Datum",
+        help="Analyse-Ende = Cutoff (YYYY-MM-DD); sonst Modus-Default",
     )
     parser.add_argument(
         "--forecast-end",
@@ -115,6 +118,13 @@ def main() -> None:
     )
     parser.add_argument("--csv", default=None, help="Alternativer Pfad zu Werte.csv")
     args = parser.parse_args()
+
+    mode_config = get_analysis_mode_config(args.analysis_mode)
+    eff_start, eff_end = resolve_study_dates_for_mode(
+        mode_config, start_date=args.start_date, end_date=args.end_date
+    )
+    if eff_end is None:
+        eff_end = cfg.get("default_cutoff")
 
     if args.from_db:
         with get_session() as session:
@@ -131,8 +141,8 @@ def main() -> None:
     study = resolve_study_dates(
         pdax_full,
         mode="tsa",
-        start_date=args.start_date,
-        end_date=args.end_date,
+        start_date=eff_start,
+        end_date=eff_end,
         forecast_end=args.forecast_end,
     )
     split = prepare_tsa_split(pdax_full, study)
@@ -142,11 +152,13 @@ def main() -> None:
     cutoff = str(study.cutoff.date())
 
     out = resolve_output_dir(cfg) / (
-        f"phase0_{study.start_date.date()}_to_{cutoff}"
+        f"phase0_{mode_config.slug}_{study.start_date.date()}_to_{cutoff}"
     )
     out.mkdir(parents=True, exist_ok=True)
 
     summary = {
+        "analysis_mode": mode_config.slug,
+        "analysis_mode_label": mode_config.label_de,
         "mode": "tsa",
         "analysis": study.analysis_label,
         "cutoff": cutoff,
@@ -164,6 +176,7 @@ def main() -> None:
         "\n".join(f"{k}: {v}" for k, v in summary.items()), encoding="utf-8"
     )
 
+    print(f"Analysemodus: {mode_config.slug} – {mode_config.label_de}", flush=True)
     print(f"Analyse: {study.analysis_label}", flush=True)
     print(f"Cutoff (= Ende): {cutoff}", flush=True)
     print(f"Prognosezeitraum: {study.forecast_label}", flush=True)
@@ -171,7 +184,6 @@ def main() -> None:
     print(f"Ausgabe: {out}", flush=True)
     print("Erzeuge Plots (ca. 1-2 Min.) ...", flush=True)
 
-    # 1) PDAX Niveau – AR(1), Zerlegung, Exponential
     _run_variant(
         train,
         out / "pdax_levels",
@@ -183,7 +195,6 @@ def main() -> None:
         ar_lags=[1],
     )
 
-    # 2) log(PDAX) – AR(0), additive + multiplikative Zerlegung
     lg = log_levels(train)
     _run_variant(
         lg,
@@ -195,13 +206,13 @@ def main() -> None:
         ar_lags=[0],
     )
 
-    # 3) trendbereinigte log-Renditen – AR(0), AR(1); nur additive Zerlegung (neg. Werte)
-    lr = log_returns_detrended(train)
+    lr = prepare_model_returns(train, mode_config)
+    returns_disp = returns_display(mode_config)
     _run_variant(
         lr,
         out / "pdax_log_returns",
         "pdax_log_returns",
-        PDAX_LOG_RETURNS,
+        returns_disp,
         do_decomp=True,
         decomp_multiplicative=False,
         ar_lags=[0, 1],
@@ -212,7 +223,7 @@ def main() -> None:
         value_axis="Residuen (ARMA(1,1))",
         data_basis=(
             "Modelloutput: Residuen aus ARMA(1,1), "
-            f"angepasst an: {PDAX_LOG_RETURNS.data_basis}"
+            f"angepasst an: {returns_disp.data_basis}"
         ),
     )
     plots.plot_residuals(

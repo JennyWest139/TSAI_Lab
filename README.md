@@ -131,11 +131,13 @@ python scripts/run_phase0_pdax.py --start-date 1987-12-01 --end-date 2007-06-30
 ## Phase 0 (Plots)
 
 ```powershell
-python scripts/run_phase0_pdax.py
-python scripts/run_phase0_pdax.py --from-db --start-date 1960-01-01 --cutoff 2007-06-30
+python scripts/run_phase0_pdax.py --analysis-mode thesis --from-db
+python scripts/run_phase0_pdax.py --analysis-mode extended --from-db --end-date 2007-06-30
 ```
 
-Ausgabe: `output/phase0_<start>_to_<cutoff>/`
+`--analysis-mode` ist **Pflicht**: `thesis` (Diplomarbeit JW 2008) oder `extended` (volle Historie + lineares Detrending auf Renditen).
+
+Ausgabe: `output/phase0_<modus>_<start>_to_<cutoff>/`
 
 ## Projektstruktur
 
@@ -169,12 +171,14 @@ Verfuegbare Slugs: `python scripts/db_list_series.py`
 ## Phase 1 (TSA: ARMA, GARCH, ARMA-GARCH)
 
 ```powershell
-python scripts/run_tsa.py --from-db --end-date 2007-06-30
-python scripts/run_tsa.py --from-db --models garch,arma-garch
-python scripts/run_tsa.py --from-db --models arma --order 1,1 --garch-order 1,1
+python scripts/run_tsa.py --analysis-mode thesis --from-db
+python scripts/run_tsa.py --analysis-mode extended --from-db --end-date 2007-06-30
+python scripts/run_tsa.py --analysis-mode thesis --from-db --models garch,arma-garch
 ```
 
-Ausgabe: `output/tsa_<start>_to_<cutoff>/`
+`--analysis-mode` ist **Pflicht** (`thesis` | `extended`).
+
+Ausgabe: `output/tsa_<modus>_<start>_to_<cutoff>/`
 
 | Ordner | Modell |
 |--------|--------|
