@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import numpy as np
 import pandas as pd
 from sqlalchemy.orm import Session
 
@@ -113,6 +114,13 @@ def align_series(a: pd.Series, b: pd.Series) -> pd.DataFrame:
     return df
 
 
+def _pearson(x: np.ndarray, y: np.ndarray) -> float:
+    """Pearson auf gleich langen Vektoren (positionsbasiert, ohne Index-Join)."""
+    if len(x) < 3:
+        return float("nan")
+    return float(np.corrcoef(x, y)[0, 1])
+
+
 def compute_cross_correlation(
     a: pd.Series,
     b: pd.Series,
@@ -121,7 +129,10 @@ def compute_cross_correlation(
     lags: list[int] | None = None,
 ) -> pd.DataFrame:
     """
-    Pearson-Korrelation pro Lag.
+    Pearson-Korrelation pro Lag (positionsbasiert).
+
+    Wichtig: nicht ``Series.corr`` auf verschobenen Slices – pandas wuerde
+    dort nach Datum alignen (gleicher Monat) statt A(t) mit B(t+h).
 
     Returns DataFrame: lag, correlation, n_obs
     """
@@ -131,26 +142,23 @@ def compute_cross_correlation(
             f"Zu wenige gemeinsame Beobachtungen ({len(xy)}), mindestens 3 noetig."
         )
 
+    av = xy["a"].to_numpy(dtype=float)
+    bv = xy["b"].to_numpy(dtype=float)
+
     if lags is None:
         lags = list(range(-max_lag, max_lag + 1))
 
     rows: list[dict] = []
     for lag in lags:
         if lag > 0:
-            sa = xy["a"].iloc[lag:]
-            sb = xy["b"].iloc[:-lag]
+            xa, xb = av[lag:], bv[:-lag]
         elif lag < 0:
-            sa = xy["a"].iloc[:lag]
-            sb = xy["b"].iloc[-lag:]
+            k = -lag
+            xa, xb = av[:-k], bv[k:]
         else:
-            sa = xy["a"]
-            sb = xy["b"]
-        n = len(sa)
-        if n < 3:
-            r = float("nan")
-        else:
-            r = float(sa.corr(sb))
-        rows.append({"lag": int(lag), "correlation": r, "n_obs": n})
+            xa, xb = av, bv
+        n = len(xa)
+        rows.append({"lag": int(lag), "correlation": _pearson(xa, xb), "n_obs": n})
 
     return pd.DataFrame(rows)
 
