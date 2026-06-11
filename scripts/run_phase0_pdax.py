@@ -33,6 +33,7 @@ from tslab.services.forecast_context import build_forecast_plot_data
 from tslab.services.ingest_werte import load_pdax_series
 from tslab.services.timeseries_store import load_pdax_full
 from tslab.services.models_ar import fit_ar
+from tslab.services.models_arma import fit_arma
 from tslab.services.transforms import log_levels, log_returns_detrended
 
 
@@ -204,6 +205,21 @@ def main() -> None:
         do_decomp=True,
         decomp_multiplicative=False,
         ar_lags=[0, 1],
+    )
+    _, arma_fitted = fit_arma(lr, order=(1, 1))
+    arma_display = SeriesDisplay(
+        short_name="Residuen nach ARMA(1,1)",
+        value_axis="Residuen (ARMA(1,1))",
+        data_basis=(
+            "Modelloutput: Residuen aus ARMA(1,1), "
+            f"angepasst an: {PDAX_LOG_RETURNS.data_basis}"
+        ),
+    )
+    plots.plot_residuals(
+        lr.loc[arma_fitted.index],
+        arma_fitted,
+        out / "pdax_log_returns" / "pdax_log_returns_ARMA11_residuals.png",
+        arma_display,
     )
 
     n_png = len(list(out.rglob("*.png")))
