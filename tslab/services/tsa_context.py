@@ -28,6 +28,11 @@ class TSAContext:
     train_lr: pd.Series
     holdout_lr: pd.Series
     forward_train_lr: pd.Series
+    train_prices: pd.Series
+    holdout_prices: pd.Series
+    forward_train_prices: pd.Series
+    price_at_cutoff: float
+    price_at_last_actual: float
     forecast_ctx: ForecastPlotData
     horizons: ForecastHorizons
     label: str
@@ -81,6 +86,14 @@ def load_tsa_context(
     ]
     forward_train_lr = prepare_model_returns(price_through_last, mode_config)
 
+    train_prices = split.train
+    holdout_prices = forecast_ctx.holdout_actual
+    forward_train_prices = price_through_last
+    price_at_cutoff = float(train_prices.iloc[-1])
+    price_at_last_actual = float(
+        pdax_full.loc[pdax_full.index <= horizons.last_actual].iloc[-1]
+    )
+
     label = f"{mode_config.slug}_{study.start_date.date()}_to_{study.cutoff.date()}"
     return TSAContext(
         mode_config=mode_config,
@@ -88,6 +101,11 @@ def load_tsa_context(
         train_lr=train_lr,
         holdout_lr=holdout_lr,
         forward_train_lr=forward_train_lr,
+        train_prices=train_prices,
+        holdout_prices=holdout_prices,
+        forward_train_prices=forward_train_prices,
+        price_at_cutoff=price_at_cutoff,
+        price_at_last_actual=price_at_last_actual,
         forecast_ctx=forecast_ctx,
         horizons=horizons,
         label=label,

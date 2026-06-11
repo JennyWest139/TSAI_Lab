@@ -56,6 +56,18 @@ from tslab.services.forecast_plot_window import (
 from tslab.services.tsa_context import load_tsa_context
 
 
+def _level_context_kwargs(ctx, plot_window: ForecastPlotWindow) -> dict:
+    return {
+        "mode_config": ctx.mode_config,
+        "train_prices": ctx.train_prices,
+        "holdout_prices": ctx.holdout_prices,
+        "forward_train_prices": ctx.forward_train_prices,
+        "price_at_cutoff": ctx.price_at_cutoff,
+        "price_at_last_actual": ctx.price_at_last_actual,
+        "plot_window": plot_window,
+    }
+
+
 def _forecast_ylabel(ctx) -> str:
     disp = returns_display(ctx.mode_config)
     if "diff(ln(PDAX))" in disp.value_axis:
@@ -121,7 +133,7 @@ def _run_arma(
 
         fwd_factory = _fwd_factory
 
-    write_thesis_forecast_plots(
+    level_summaries = write_thesis_forecast_plots(
         train_lr=train_lr,
         holdout_lr=ctx.holdout_lr,
         horizons=ctx.horizons,
@@ -132,8 +144,8 @@ def _run_arma(
         file_tag=tag,
         title_base=title_base,
         model_label=model_label,
-        plot_window=plot_window,
         y_label=_forecast_ylabel(ctx),
+        **_level_context_kwargs(ctx, plot_window),
     )
 
     summary = [
@@ -148,6 +160,8 @@ def _run_arma(
         "",
         format_residual_diagnostics(diag, model_label=f"ARMA({p},{q})"),
     ]
+    for block in level_summaries:
+        summary.extend(["", block])
     (model_dir / "summary.txt").write_text("\n".join(summary), encoding="utf-8")
     print(f"  ARMA({p},{q}) AIC={res.aic:.2f} -> {model_dir}")
 
@@ -205,7 +219,7 @@ def _run_garch(
 
         fwd_factory = _fwd_factory
 
-    write_thesis_forecast_plots(
+    level_summaries = write_thesis_forecast_plots(
         train_lr=train_lr,
         holdout_lr=ctx.holdout_lr,
         horizons=ctx.horizons,
@@ -216,8 +230,8 @@ def _run_garch(
         file_tag=tag,
         title_base=title_base,
         model_label=model_label,
-        plot_window=plot_window,
         y_label=_forecast_ylabel(ctx),
+        **_level_context_kwargs(ctx, plot_window),
     )
 
     summary = [
@@ -233,6 +247,8 @@ def _run_garch(
         "",
         format_residual_diagnostics(diag, model_label=fit.label),
     ]
+    for block in level_summaries:
+        summary.extend(["", block])
     (model_dir / "summary.txt").write_text("\n".join(summary), encoding="utf-8")
     print(f"  {fit.label} AIC={fit.aic:.2f} -> {model_dir}")
 
@@ -345,7 +361,7 @@ def _run_arma_garch(
 
         fwd_factory = _fwd_factory
 
-    write_thesis_forecast_plots(
+    level_summaries = write_thesis_forecast_plots(
         train_lr=train_lr,
         holdout_lr=ctx.holdout_lr,
         horizons=ctx.horizons,
@@ -356,8 +372,8 @@ def _run_arma_garch(
         file_tag=tag,
         title_base=title_base,
         model_label=model_label,
-        plot_window=plot_window,
         y_label=_forecast_ylabel(ctx),
+        **_level_context_kwargs(ctx, plot_window),
     )
 
     joint_note = "gemeinsam (arch)" if fit.joint else "zweistufig ARMA + GARCH"
@@ -381,6 +397,8 @@ def _run_arma_garch(
             ),
         ]
     )
+    for block in level_summaries:
+        summary.extend(["", block])
     (model_dir / "summary.txt").write_text("\n".join(summary), encoding="utf-8")
     print(f"  {fit.label} GARCH-AIC={fit.garch.aic:.2f} -> {model_dir}")
 

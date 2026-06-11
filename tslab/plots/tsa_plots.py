@@ -118,6 +118,7 @@ def plot_forecast_abgleich(
     holdout_end: pd.Timestamp | None,
     plot_window: ForecastPlotWindow | None = None,
     y_label: str = "kont. Renditen",
+    actual_label: str = "Kont. Rendite",
 ) -> Path:
     """
     Diplomarbeit-Abgleich: Training, Ueberlappung (Ist + Prognose), reine Prognose.
@@ -138,7 +139,7 @@ def plot_forecast_abgleich(
 
     fig, ax = plt.subplots(figsize=(11, 5.5))
     if not actual.empty:
-        actual.plot(ax=ax, color="black", lw=1.1, label="Kont. Rendite", zorder=3)
+        actual.plot(ax=ax, color="black", lw=1.1, label=actual_label, zorder=3)
 
     if not forecast_p.mean.empty:
         _plot_quantile_lines(ax, forecast_p)
@@ -161,13 +162,11 @@ def plot_forecast_abgleich(
         marker_note = f"; Prognose ab {fc_start.date()}"
         if fc_year_end is not None and fc_year_end != fc_start:
             marker_note += f", 12 Monate bis {fc_year_end.date()}"
+    footnote = f"Modell: {model_label}{marker_note}; Fenster: {window.label_de}"
     fig.text(
         0.5,
         0.01,
-        (
-            f"Modell: {model_label}{marker_note}; "
-            f"Fenster: {window.label_de}"
-        ),
+        footnote,
         ha="center",
         fontsize=7,
         style="italic",
@@ -186,6 +185,7 @@ def plot_forecast_forward(
     last_actual: pd.Timestamp,
     plot_window: ForecastPlotWindow | None = None,
     y_label: str = "kont. Renditen",
+    actual_label: str = "Kont. Rendite",
 ) -> Path:
     """
     Forward-Grafik: Ist-Werte bis letzter Beobachtung, Prognose nur danach.
@@ -206,7 +206,7 @@ def plot_forecast_forward(
 
     fig, ax = plt.subplots(figsize=(11, 5.5))
     if not full_actual.empty:
-        full_actual.plot(ax=ax, color="black", lw=1.1, label="Kont. Rendite", zorder=3)
+        full_actual.plot(ax=ax, color="black", lw=1.1, label=actual_label, zorder=3)
 
     if not forecast_p.mean.empty:
         _plot_quantile_lines(ax, forecast_p)
@@ -221,8 +221,13 @@ def plot_forecast_forward(
         0.5,
         0.01,
         (
-            f"Modell: {model_label}; letzter Istwert {eff_last.date()}; "
-            f"Prognose ab Folgemonat"
+            f"Modell: {model_label}; letzter Istwert {eff_last.date()} "
+            f"(PDAX); Prognose ab Folgemonat"
+            if actual_label == "PDAX (Niveau)"
+            else (
+                f"Modell: {model_label}; letzter Istwert {eff_last.date()}; "
+                f"Prognose ab Folgemonat"
+            )
         ),
         ha="center",
         fontsize=7,
