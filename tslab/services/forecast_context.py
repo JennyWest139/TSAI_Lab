@@ -37,17 +37,15 @@ def build_forecast_plot_data(
     split = prepare_tsa_split(full_series, study)
     clean = full_series.dropna().sort_index()
 
-    after_cutoff = clean.index[clean.index > study.cutoff]
-    if len(after_cutoff) == 0:
-        freq = pd.infer_freq(clean.index) or "MS"
-        last = study.cutoff
-        forecast_idx = pd.date_range(
-            start=last + pd.tseries.frequencies.to_offset(freq),
-            periods=1,
-            freq=freq,
-        )
+    freq = pd.infer_freq(clean.index) or "MS"
+    step = pd.tseries.frequencies.to_offset(freq)
+    fc_start = study.cutoff + step
+    if fc_start > study.forecast_end:
+        forecast_idx = pd.DatetimeIndex([])
     else:
-        forecast_idx = after_cutoff[after_cutoff <= study.forecast_end]
+        forecast_idx = pd.date_range(
+            start=fc_start, end=study.forecast_end, freq=freq
+        )
 
     return ForecastPlotData(
         train=split.train,

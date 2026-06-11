@@ -88,6 +88,7 @@ def resolve_study_dates(
     - end_date gesetzt => cutoff = end_date (TSA; end_date ist Stichtag).
     - cutoff nur noetig, wenn end_date fehlt (dann cutoff oder letztes Datum).
     - forecast_end Standard: letztes verfuegbares Datum der ZR.
+    - TSA: forecast_end darf ueber available_end hinausreichen (reine Prognose).
     - Korrelation: cutoff = end_date, forecast_end = end_date (unbenutzt).
     """
     clean = full_series.dropna().sort_index()
@@ -127,10 +128,20 @@ def resolve_study_dates(
         raise ValueError(
             f"Cutoff ({eff_cutoff.date()}) liegt vor Analyse-Start ({eff_start.date()})."
         )
-    if eff_start < available_start or eff_forecast_end > available_end:
+    if eff_start < available_start:
         raise ValueError(
-            f"Zeitraum ausserhalb der Daten "
-            f"({available_start.date()} .. {available_end.date()})."
+            f"Start ({eff_start.date()}) liegt vor erstem Datenpunkt "
+            f"({available_start.date()})."
+        )
+    if eff_cutoff > available_end:
+        raise ValueError(
+            f"Cutoff ({eff_cutoff.date()}) liegt nach letztem Datenpunkt "
+            f"({available_end.date()})."
+        )
+    if mode != "tsa" and eff_forecast_end > available_end:
+        raise ValueError(
+            f"Prognose-Ende ({eff_forecast_end.date()}) liegt nach letztem "
+            f"Datenpunkt ({available_end.date()})."
         )
     if eff_forecast_end < eff_cutoff:
         raise ValueError(
@@ -211,8 +222,9 @@ def prepare_tsa_split(full_series: pd.Series, study: StudyDates) -> TSASplit:
     train = clean.loc[
         (clean.index >= study.start_date) & (clean.index <= study.cutoff)
     ]
+    data_end = min(study.forecast_end, study.available_end)
     holdout = clean.loc[
-        (clean.index > study.cutoff) & (clean.index <= study.forecast_end)
+        (clean.index > study.cutoff) & (clean.index <= data_end)
     ]
     if train.empty:
         raise ValueError("Keine Trainingsdaten im TSA-Analysefenster.")

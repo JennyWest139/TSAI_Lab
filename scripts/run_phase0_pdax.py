@@ -36,6 +36,7 @@ from tslab.services.ingest_werte import load_pdax_series
 from tslab.services.timeseries_store import load_pdax_full
 from tslab.services.models_ar import fit_ar
 from tslab.services.models_arma import fit_arma
+from tslab.services.residual_diagnostics import run_model_fit_diagnostics
 from tslab.services.transforms import log_levels
 
 
@@ -84,11 +85,22 @@ def _run_variant(
             _, fitted = fit_ar(y_train, lag)
             tag = f"AR{lag}"
         resid_display = display.ar_residuals(lag)
+        file_tag = f"{variant_id}_{tag}"
         plots.plot_residuals(
             y_train.loc[fitted.index],
             fitted,
-            out_base / f"{variant_id}_{tag}_residuals.png",
+            out_base / f"{file_tag}_residuals.png",
             resid_display,
+        )
+        model_label = f"AR({lag})" if lag > 0 else "AR(0) / Konstante"
+        run_model_fit_diagnostics(
+            y_train,
+            fitted,
+            out_base,
+            file_tag,
+            display,
+            resid_display,
+            model_label=model_label,
         )
 
 
@@ -226,11 +238,21 @@ def main() -> None:
             f"angepasst an: {returns_disp.data_basis}"
         ),
     )
+    arma_tag = "pdax_log_returns_ARMA11"
     plots.plot_residuals(
         lr.loc[arma_fitted.index],
         arma_fitted,
-        out / "pdax_log_returns" / "pdax_log_returns_ARMA11_residuals.png",
+        out / "pdax_log_returns" / f"{arma_tag}_residuals.png",
         arma_display,
+    )
+    run_model_fit_diagnostics(
+        lr,
+        arma_fitted,
+        out / "pdax_log_returns",
+        arma_tag,
+        returns_disp,
+        arma_display,
+        model_label="ARMA(1,1)",
     )
 
     n_png = len(list(out.rglob("*.png")))

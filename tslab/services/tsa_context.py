@@ -16,8 +16,9 @@ from tslab.services.analysis_mode import (
 )
 from tslab.services.analysis_window import StudyDates, prepare_tsa_split, resolve_study_dates
 from tslab.services.forecast_context import ForecastPlotData, build_forecast_plot_data
+from tslab.services.forecast_horizons import ForecastHorizons, build_forecast_horizons
+from tslab.services.forecast_plot_window import ForecastPlotWindow
 from tslab.services.timeseries_store import load_pdax_full
-from tslab.services.transforms import log_returns
 
 
 @dataclass(frozen=True)
@@ -26,7 +27,9 @@ class TSAContext:
     study: StudyDates
     train_lr: pd.Series
     holdout_lr: pd.Series
+    forward_train_lr: pd.Series
     forecast_ctx: ForecastPlotData
+    horizons: ForecastHorizons
     label: str
 
 
@@ -37,8 +40,10 @@ def load_tsa_context(
     start_date: str | None = None,
     end_date: str | None = None,
     forecast_end: str | None = None,
+    plot_window: ForecastPlotWindow | None = None,
 ) -> TSAContext:
     pdax_full = load_pdax_full(session)
+    eff_window = plot_window or ForecastPlotWindow.from_defaults(load_defaults())
     eff_start, eff_end = resolve_study_dates_for_mode(
         mode_config, start_date=start_date, end_date=end_date
     )
@@ -56,11 +61,25 @@ def load_tsa_context(
     forecast_ctx = build_forecast_plot_data(pdax_full, study)
     train_lr = prepare_model_returns(split.train, mode_config)
 
-    if forecast_ctx.holdout_actual.empty:
-        holdout_lr = pd.Series(dtype=float)
-    else:
-        combo = pd.concat([split.train, forecast_ctx.holdout_actual])
-        holdout_lr = log_returns(combo).loc[forecast_ctx.holdout_actual.index]
+    horizons = build_forecast_horizons(
+        pdax_full,
+        cutoff=study.cutoff,
+        forecast_end=study.forecast_end,
+        plot_window=eff_window,
+    )
+
+    data_end = min(study.forecast_end, study.available_end)
+    price_through_forecast = pdax_full.loc[
+        (pdax_full.index >= study.start_date) & (pdax_full.index <= data_end)
+    ]
+    lr_through_forecast = prepare_model_returns(price_through_forecast, mode_config)
+    holdout_lr = lr_through_forecast.loc[lr_through_forecast.index > study.cutoff]
+
+    price_through_last = pdax_full.loc[
+        (pdax_full.index >= study.start_date)
+        & (pdax_full.index <= horizons.last_actual)
+    ]
+    forward_train_lr = prepare_model_returns(price_through_last, mode_config)
 
     label = f"{mode_config.slug}_{study.start_date.date()}_to_{study.cutoff.date()}"
     return TSAContext(
@@ -68,7 +87,9 @@ def load_tsa_context(
         study=study,
         train_lr=train_lr,
         holdout_lr=holdout_lr,
+        forward_train_lr=forward_train_lr,
         forecast_ctx=forecast_ctx,
+        horizons=horizons,
         label=label,
     )
 

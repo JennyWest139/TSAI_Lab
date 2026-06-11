@@ -11,6 +11,12 @@ csv:
 
 output_dir: "output"
 
+# Sichtfenster Prognosegrafiken (CLI: --plot-pre-years / --plot-forecast-years / --plot-post-years)
+forecast_plot_window:
+  pre_years: 3
+  forecast_years: 1
+  post_years: 1
+
 # Standard-Cutoff für extended-Modus (letzter Monat mit vollständigem PDAX vor Lücken)
 default_cutoff: "2007-06-30"
 
