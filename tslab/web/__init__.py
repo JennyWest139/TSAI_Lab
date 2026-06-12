@@ -1,4 +1,4 @@
-"""Flask-Web-Oberflaeche fuer TSLab (Dashboard, Mock-API)."""
+"""Flask-Web-Oberflaeche fuer TSLab (Dashboard, DB-API mit Mock-Fallback)."""
 
 from tslab.web.app import create_app
 

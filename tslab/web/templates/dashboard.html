@@ -1,14 +1,14 @@
 {% extends "base.html" %}
 {% block title %}Übersicht{% endblock %}
 {% block page_title %}Übersicht{% endblock %}
-{% block page_subtitle %}PDAX, DAX und Erwerbslosenquote — Mock-Daten für den UI-Prototyp{% endblock %}
+{% block page_subtitle %}PDAX, DAX und Erwerbslosenquote — Zeitreihenanalyse{% endblock %}
 
 {% block content %}
 <div class="grid stats">
   <div class="card stat-card">
     <span class="stat-label">Zeitreihen</span>
     <span class="stat-value">{{ series|length }}</span>
-    <span class="stat-hint">in der Datenbank (Mock)</span>
+    <span class="stat-hint">in der Datenbank</span>
   </div>
   <div class="card stat-card">
     <span class="stat-label">Korrelationen</span>
@@ -45,7 +45,7 @@
 
   <section class="card">
     <div class="card-header">
-      <h2>Favoriten (Mock)</h2>
+      <h2>Favoriten</h2>
     </div>
     <ul class="series-mini-list">
       {% for s in series if s.slug in ['pdax', 'erwerbslose'] %}
@@ -64,13 +64,13 @@
 
 <section class="card">
   <div class="card-header">
-    <h2>Geplanter Ablauf (nach Backend-Anbindung)</h2>
+    <h2>Ablauf</h2>
   </div>
   <ol class="flow-steps">
     <li><strong>Upload</strong> — Reihe in <code>observations</code> speichern</li>
-    <li><strong>Analyse</strong> — Fenster, Rhythmus, Modus <em>thesis</em> / <em>extended</em></li>
-    <li><strong>Ergebnis</strong> — PNG-Grafiken, Kennzahlen, später interaktive Charts</li>
-    <li><strong>Bericht</strong> — PDF/Word, Excel mit Quantilen, DB-Export (folgt)</li>
+    <li><strong>Analyse</strong> — Fenster aus DB-Daten, Modus <em>thesis</em> / <em>extended</em></li>
+    <li><strong>Ergebnis</strong> — PNG-Grafiken, Kennzahlen in <code>output/</code></li>
+    <li><strong>Historie</strong> — ältere Läufe unter Korrelation / TSA → Historie</li>
   </ol>
 </section>
 {% endblock %}

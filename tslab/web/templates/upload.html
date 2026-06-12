@@ -1,20 +1,47 @@
 {% extends "base.html" %}
 {% block title %}Upload{% endblock %}
 {% block page_title %}Zeitreihe hochladen{% endblock %}
-{% block page_subtitle %}CSV mit Datums- und Wertspalte — aktuell nur UI-Simulation{% endblock %}
+{% block page_subtitle %}CSV/Excel — Spalten wählen, in PostgreSQL importieren{% endblock %}
 
 {% block content %}
 <section class="card">
-  <form id="uploadForm" class="upload-zone" enctype="multipart/form-data">
-    <input type="file" id="fileInput" name="file" accept=".csv,.txt" hidden>
+  <form id="uploadForm" enctype="multipart/form-data">
+    <input type="file" id="fileInput" name="file" accept=".csv,.txt,.xlsx,.xls" hidden>
     <div class="upload-drop" id="uploadDrop">
       <div class="upload-icon">↑</div>
-      <p><strong>Datei hier ablegen</strong> oder klicken zum Auswählen</p>
-      <p class="hint">Erwartet: Semikolon-CSV, Spalten Datum + Wert (wie Werte.csv)</p>
+      <p><strong>Datei hier ablegen</strong> oder klicken</p>
+      <p class="hint">Semikolon-CSV oder Excel (Werte.csv)</p>
     </div>
-    <div class="upload-meta" id="uploadMeta" hidden>
-      <span id="fileName"></span>
-      <button type="submit" class="btn btn-primary">Hochladen (Mock)</button>
+
+    <div id="uploadWizard" hidden>
+      <p class="hint" id="fileMeta"></p>
+      <div class="field-row">
+        <label for="filePreview">Vorschau</label>
+        <textarea id="filePreview" class="file-preview" readonly rows="10" spellcheck="false"></textarea>
+      </div>
+      <div class="grid three-col">
+        <div class="field-row">
+          <label for="dateColumn">Datumsspalte</label>
+          <select id="dateColumn" name="date_column" required></select>
+        </div>
+        <div class="field-row">
+          <label for="valueColumn">Wertespalte</label>
+          <select id="valueColumn" name="value_column" required></select>
+        </div>
+        <div class="field-row">
+          <label for="seriesName">Name</label>
+          <input type="text" id="seriesName" name="series_name">
+        </div>
+        <div class="field-row">
+          <label for="uploadFrequency">Rhythmus</label>
+          <select id="uploadFrequency" name="frequency"></select>
+        </div>
+      </div>
+      <input type="hidden" id="uploadSep" name="sep" value=";">
+      <input type="hidden" id="uploadDateFormat" name="date_format" value="%d.%m.%Y">
+      <div class="form-actions">
+        <button type="submit" class="btn btn-primary">Importieren</button>
+      </div>
     </div>
   </form>
   <div id="uploadResult" class="result-panel" hidden></div>
@@ -23,15 +50,13 @@
 <section class="card">
   <h2>Hinweise</h2>
   <ul class="hint-list">
-    <li>Upload schreibt später in PostgreSQL (<code>tslab</code>), Tabelle <code>observations</code>.</li>
-    <li>Bestehende Uploads werden nicht überschrieben — neue Version als eigene Serie oder Merge nach Regel.</li>
-    <li>Nach erfolgreichem Import erscheint die Reihe unter <a href="{{ url_for('series_page') }}">Zeitreihen</a>.</li>
+    <li>Import in PostgreSQL, Tabelle <code>observations</code>.</li>
+    <li>Rhythmus wird aus Datumsabständen vorgeschlagen.</li>
+    <li>Reihe erscheint unter <a href="{{ url_for('series_page') }}">Zeitreihen</a>.</li>
   </ul>
 </section>
 {% endblock %}
 
 {% block scripts %}
-<script>
-  TSLab.initUpload();
-</script>
+<script>TSLab.initUpload();</script>
 {% endblock %}

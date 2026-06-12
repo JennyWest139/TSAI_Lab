@@ -31,8 +31,8 @@ analysis_mode:
 
 # Datenbank (TSLAB_DATABASE_URL ueberschreibt alles)
 database:
-  # PostgreSQL (wenn Server laeuft): use_sqlite auf false setzen
+  # Standard: PostgreSQL (Web-Dashboard, Korrelation, TSA)
   use_sqlite: false
   url: "postgresql+psycopg2://tslab:tslab@localhost:5432/tslab"
   sqlite_path: "data/tslab.db"
-  # Oder: $env:TSLAB_DATABASE_URL = "sqlite:///data/tslab.db"
+  # SQLite nur bei Bedarf: use_sqlite: true  oder  TSLAB_USE_SQLITE=1

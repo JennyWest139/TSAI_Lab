@@ -188,8 +188,30 @@ Ausgabe: `output/tsa_<modus>_<start>_to_<cutoff>/`
 
 Pro Modell: Residuen/Volatilitaet, Prognose mit Quantilbaendern (0,5 % / 5 % / 50 % / 95 % / 99,5 %), `summary.txt`.
 
+## Web-Dashboard (Flask + PostgreSQL)
+
+Standard in `config/defaults.yaml`: `database.use_sqlite: false`, URL `postgresql+psycopg2://tslab:tslab@localhost:5432/tslab`.
+
+```powershell
+docker compose up -d
+python scripts/prepare_web_postgres.py
+python scripts/run_web.py --no-mock-fallback
+```
+
+Ohne Docker (lokaler PostgreSQL-Dienst):
+
+```powershell
+python scripts/setup_postgres.py
+python scripts/prepare_web_postgres.py
+python scripts/run_web.py --no-mock-fallback
+```
+
+**Live (PostgreSQL):** Serienliste, Überlappung, Korrelation (`POST /api/correlation/run`), TSA (`POST /api/tsa/run`), Upload-Vorschau und CSV-Import.  
+**Mock-Fallback:** Nur wenn die DB nicht erreichbar ist (`--mock` erzwingt Mock; `--no-mock-fallback` erzwingt PostgreSQL).
+
 ## Nächste Schritte
 
-1. Flask-Dashboard (Upload, Historie, Datumsauswahl in UI)
-2. PDF-Berichte (Gleichungen, Parameter, Diagnostik)
-3. KI-Bericht zur Korrelation (optional)
+1. `TsaHistory` in der DB (Web-Historie derzeit aus `output/tsa_*`)
+2. Asynchrone Läufe / Fortschrittsanzeige im Web
+3. PDF-Berichte (Gleichungen, Parameter, Diagnostik)
+4. KI-Bericht zur Korrelation (optional)

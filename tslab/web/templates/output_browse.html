@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Output{% endblock %}
+{% block page_title %}Ergebnis-Ordner{% endblock %}
+{% block page_subtitle %}<span class="mono">{{ listing.path or 'output/' }}</span>{% endblock %}
+
+{% block content %}
+<p class="hint" style="margin-top:0;">
+  <a href="{{ url_for('output_browse') }}">output</a>{% if listing.path %} / {{ listing.path }}{% endif %}
+  · <a href="{{ url_for('correlation_history_page') }}">Korrelations-Historie</a>
+  · <a href="{{ url_for('tsa_history_page') }}">TSA-Historie</a>
+</p>
+
+<section class="card">
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead><tr><th>Name</th><th>Typ</th><th></th></tr></thead>
+      <tbody>
+        {% if listing.parent %}
+        <tr><td colspan="3"><a href="{{ url_for('output_browse', subpath=listing.parent) }}">..</a></td></tr>
+        {% endif %}
+        {% for e in listing.entries %}
+        <tr>
+          <td>{% if e.is_dir %}<a href="{{ url_for('output_browse', subpath=e.path) }}">{{ e.name }}/</a>{% else %}{{ e.name }}{% endif %}</td>
+          <td class="muted">{% if e.is_dir %}Ordner{% else %}{{ e.ext }}{% endif %}</td>
+          <td>{% if not e.is_dir and e.ext in ['.png', '.jpg', '.txt', '.csv', '.pdf'] %}<a href="{{ url_for('output_file', subpath=e.path) }}" class="stat-link" target="_blank">öffnen</a>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

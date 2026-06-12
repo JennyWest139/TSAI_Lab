@@ -27,6 +27,9 @@ def main() -> None:
 
     print("Status: OK – Verbindung erfolgreich")
     print("Naechste Schritte:")
+    if url.startswith("postgresql"):
+        print("  python scripts/prepare_web_postgres.py")
+        print("  python scripts/run_web.py --no-mock-fallback")
     print("  python scripts/db_init.py      (falls noch nicht geschehen)")
     print("  python scripts/db_seed_werte.py")
     print("  python scripts/db_list_series.py")

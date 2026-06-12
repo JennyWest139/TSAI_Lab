@@ -31,6 +31,7 @@ class CorrelationRun:
     best_lag: int | None
     best_r: float | None
     created_at: datetime
+    output_dir: str | None = None
 
 
 @dataclass(frozen=True)
@@ -44,6 +45,7 @@ class TsaRun:
     forecast_end: date
     status: str
     created_at: datetime
+    output_dir: str | None = None
 
 
 MOCK_SERIES: list[SeriesMeta] = [
@@ -104,6 +106,7 @@ MOCK_CORRELATION_HISTORY: list[CorrelationRun] = [
         best_lag=3,
         best_r=0.412,
         created_at=datetime(2026, 6, 10, 14, 22),
+        output_dir="output/correlation_thesis_pdax_vs_erwerbslose_1991-01-01_to_2007-01-01",
     ),
     CorrelationRun(
         id=2,
@@ -116,6 +119,7 @@ MOCK_CORRELATION_HISTORY: list[CorrelationRun] = [
         best_lag=-2,
         best_r=-0.287,
         created_at=datetime(2026, 6, 8, 9, 15),
+        output_dir="output/correlation_thesis_dax_vs_erwerbslose_1991-01-01_to_2007-06-30",
     ),
 ]
 
@@ -130,6 +134,7 @@ MOCK_TSA_HISTORY: list[TsaRun] = [
         forecast_end=date(2008, 7, 1),
         status="fertig",
         created_at=datetime(2026, 6, 11, 15, 28),
+        output_dir="output/tsa_thesis_1987-12-01_to_2006-07-01",
     ),
     TsaRun(
         id=2,
@@ -141,8 +146,16 @@ MOCK_TSA_HISTORY: list[TsaRun] = [
         forecast_end=date(2008, 7, 1),
         status="fertig",
         created_at=datetime(2026, 6, 9, 11, 5),
+        output_dir="output/tsa_thesis_1987-12-01_to_2007-07-01",
     ),
 ]
+
+
+def suggest_run_name(slug_a: str, slug_b: str) -> str:
+    """z. B. dax + bip -> DAXvsBIP"""
+    a = slug_a.upper().replace("_", "")
+    b = slug_b.upper().replace("_", "")
+    return f"{a}vs{b}"
 
 TSA_MODELS = [
     {
@@ -194,6 +207,15 @@ def pair_overlap(slug_a: str, slug_b: str) -> dict | None:
     freq = a.frequency if a.frequency == b.frequency else "MS"
     freq_label = a.frequency_label if a.frequency == b.frequency else "Gemischt (Vorschlag: Monatlich)"
     months = (overlap_end.year - overlap_start.year) * 12 + overlap_end.month - overlap_start.month + 1
+    dates: list[str] = []
+    d = overlap_start
+    while d <= overlap_end:
+        dates.append(d.isoformat())
+        if d.month == 12:
+            d = date(d.year + 1, 1, 1)
+        else:
+            d = date(d.year, d.month + 1, 1)
+
     return {
         "series_a": series_to_dict(a),
         "series_b": series_to_dict(b),
@@ -204,6 +226,8 @@ def pair_overlap(slug_a: str, slug_b: str) -> dict | None:
         "overlap_observations": months,
         "suggested_frequency": freq,
         "suggested_frequency_label": freq_label,
+        "suggested_run_name": suggest_run_name(slug_a, slug_b),
+        "dates": dates,
         "frequencies": FREQUENCY_OPTIONS,
     }
 

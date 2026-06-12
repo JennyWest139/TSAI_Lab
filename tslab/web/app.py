@@ -1,33 +1,48 @@
-"""Flask-App: Dashboard-Oberflaeche (UI + Mock-API)."""
+"""Flask-App: Dashboard-Oberflaeche (UI + DB/Mock-API)."""
 
 from __future__ import annotations
 
-from datetime import datetime
 from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request
 
 from tslab.web import mock_data as mock
+from tslab.web.backend import WebBackend
+from tslab.web.output_browser import list_directory, resolve_output_path, serve_output_file
 
 _WEB_ROOT = Path(__file__).resolve().parent
 
 
-def create_app() -> Flask:
+def create_app(*, use_mock: bool = False) -> Flask:
     app = Flask(
         __name__,
         template_folder=str(_WEB_ROOT / "templates"),
         static_folder=str(_WEB_ROOT / "static"),
     )
     app.config["SECRET_KEY"] = "tslab-dev-ui-only"
+    app.config["MAX_CONTENT_LENGTH"] = 32 * 1024 * 1024
+
+    backend = WebBackend(use_mock=use_mock)
+    app.extensions["tslab_backend"] = backend
+
+    @app.context_processor
+    def inject_backend():
+        return {
+            "backend_mode": backend.mode_label,
+            "uses_mock": backend.uses_mock,
+        }
+
+    def _series_dicts():
+        return [mock.series_to_dict(s) for s in backend.list_series()]
 
     @app.get("/")
     def dashboard():
         return render_template(
             "dashboard.html",
             page="dashboard",
-            series=mock.MOCK_SERIES,
-            corr_count=len(mock.MOCK_CORRELATION_HISTORY),
-            tsa_count=len(mock.MOCK_TSA_HISTORY),
+            series=backend.list_series(),
+            corr_count=len(backend.list_correlation_history()),
+            tsa_count=len(backend.list_tsa_history()),
         )
 
     @app.get("/upload")
@@ -39,7 +54,7 @@ def create_app() -> Flask:
         return render_template(
             "series.html",
             page="series",
-            series=mock.MOCK_SERIES,
+            series=backend.list_series(),
         )
 
     @app.get("/correlation")
@@ -47,7 +62,7 @@ def create_app() -> Flask:
         return render_template(
             "correlation.html",
             page="correlation",
-            series=mock.MOCK_SERIES,
+            series=backend.list_series(),
         )
 
     @app.get("/correlation/history")
@@ -55,8 +70,7 @@ def create_app() -> Flask:
         return render_template(
             "correlation_history.html",
             page="correlation_history",
-            runs=mock.MOCK_CORRELATION_HISTORY,
-            series=mock.MOCK_SERIES,
+            runs=backend.list_correlation_history(),
         )
 
     @app.get("/tsa")
@@ -64,7 +78,7 @@ def create_app() -> Flask:
         return render_template(
             "tsa.html",
             page="tsa",
-            series=mock.MOCK_SERIES,
+            series=backend.list_series(),
             models=mock.TSA_MODELS,
         )
 
@@ -73,28 +87,46 @@ def create_app() -> Flask:
         return render_template(
             "tsa_history.html",
             page="tsa_history",
-            runs=mock.MOCK_TSA_HISTORY,
-            series=mock.MOCK_SERIES,
+            runs=backend.list_tsa_history(),
+            series=backend.list_series(),
         )
 
-  # --- Mock API (spaeter: echte Services) ---
+    @app.get("/output/browse/")
+    @app.get("/output/browse/<path:subpath>")
+    def output_browse(subpath: str = ""):
+        listing = list_directory(subpath)
+        return render_template(
+            "output_browse.html",
+            page="output",
+            listing=listing,
+        )
+
+    @app.get("/output/file/<path:subpath>")
+    def output_file(subpath: str):
+        return serve_output_file(subpath)
 
     @app.get("/api/series")
     def api_series():
-        return jsonify([mock.series_to_dict(s) for s in mock.MOCK_SERIES])
+        return jsonify(_series_dicts())
 
     @app.get("/api/series/<slug>")
     def api_series_detail(slug: str):
-        s = mock.series_by_slug(slug)
+        s = backend.series_by_slug(slug)
         if s is None:
             return jsonify({"error": "Serie nicht gefunden"}), 404
-        return jsonify(mock.series_to_dict(s))
+        data = mock.series_to_dict(s)
+        data["dates"] = backend.series_dates(slug)
+        return jsonify(data)
+
+    @app.get("/api/series/<slug>/dates")
+    def api_series_dates(slug: str):
+        return jsonify({"slug": slug, "dates": backend.series_dates(slug)})
 
     @app.get("/api/overlap")
     def api_overlap():
         slug_a = request.args.get("a", "")
         slug_b = request.args.get("b", "")
-        data = mock.pair_overlap(slug_a, slug_b)
+        data = backend.pair_overlap(slug_a, slug_b)
         if data is None:
             return jsonify({"error": "Keine Ueberlappung oder ungueltige Serie"}), 400
         return jsonify(data)
@@ -102,10 +134,11 @@ def create_app() -> Flask:
     @app.get("/api/correlation/history")
     def api_correlation_history():
         rows = []
-        for r in mock.MOCK_CORRELATION_HISTORY:
+        for r in backend.list_correlation_history():
             rows.append(
                 {
                     "id": r.id,
+                    "run_name": r.display_name,
                     "series_a": r.series_a,
                     "series_b": r.series_b,
                     "start_date": r.start_date.isoformat(),
@@ -115,6 +148,8 @@ def create_app() -> Flask:
                     "best_lag": r.best_lag,
                     "best_r": r.best_r,
                     "created_at": r.created_at.isoformat(),
+                    "output_dir": r.output_dir,
+                    "browse_url": r.browse_url,
                 }
             )
         return jsonify(rows)
@@ -126,10 +161,11 @@ def create_app() -> Flask:
     @app.get("/api/tsa/history")
     def api_tsa_history():
         rows = []
-        for r in mock.MOCK_TSA_HISTORY:
+        for r in backend.list_tsa_history():
             rows.append(
                 {
                     "id": r.id,
+                    "display_name": r.display_name,
                     "series_slug": r.series_slug,
                     "models": r.models,
                     "analysis_mode": r.analysis_mode,
@@ -138,47 +174,60 @@ def create_app() -> Flask:
                     "forecast_end": r.forecast_end.isoformat(),
                     "status": r.status,
                     "created_at": r.created_at.isoformat(),
+                    "output_dir": r.output_dir,
+                    "browse_url": r.browse_url,
                 }
             )
         return jsonify(rows)
+
+    @app.post("/api/upload/preview")
+    def api_upload_preview():
+        f = request.files.get("file")
+        if f is None or not f.filename:
+            return jsonify({"ok": False, "message": "Keine Datei gewaehlt"}), 400
+        try:
+            preview = backend.preview_upload(f.read(), f.filename)
+            return jsonify({"ok": True, **preview})
+        except ValueError as exc:
+            return jsonify({"ok": False, "message": str(exc)}), 400
 
     @app.post("/api/upload")
     def api_upload():
         f = request.files.get("file")
         if f is None or not f.filename:
             return jsonify({"ok": False, "message": "Keine Datei gewaehlt"}), 400
-        return jsonify(mock.mock_upload_result(f.filename))
+        try:
+            result = backend.import_upload(
+                f.read(),
+                f.filename,
+                date_column=request.form.get("date_column", ""),
+                value_column=request.form.get("value_column", ""),
+                series_name=request.form.get("series_name") or None,
+                date_format=request.form.get("date_format", "%d.%m.%Y"),
+                sep=request.form.get("sep", ";"),
+            )
+            return jsonify(result)
+        except (ValueError, KeyError) as exc:
+            return jsonify({"ok": False, "message": str(exc)}), 400
 
     @app.post("/api/correlation/run")
     def api_correlation_run():
         body = request.get_json(silent=True) or {}
-        return jsonify(
-            {
-                "ok": True,
-                "status": "queued",
-                "message": "Korrelation simuliert (Backend folgt)",
-                "job": {
-                    **body,
-                    "started_at": datetime.now().isoformat(),
-                    "output_preview": "output/correlation_thesis_pdax_vs_erwerbslose_.../",
-                },
-            }
-        )
+        try:
+            return jsonify(backend.run_correlation(body))
+        except ValueError as exc:
+            return jsonify({"ok": False, "message": str(exc)}), 400
+        except Exception as exc:
+            return jsonify({"ok": False, "message": str(exc)}), 500
 
     @app.post("/api/tsa/run")
     def api_tsa_run():
         body = request.get_json(silent=True) or {}
-        return jsonify(
-            {
-                "ok": True,
-                "status": "queued",
-                "message": "TSA-Lauf simuliert (Backend folgt)",
-                "job": {
-                    **body,
-                    "started_at": datetime.now().isoformat(),
-                    "output_preview": "output/tsa_thesis_1987-12-01_to_2006-07-01/",
-                },
-            }
-        )
+        try:
+            return jsonify(backend.run_tsa(body))
+        except ValueError as exc:
+            return jsonify({"ok": False, "message": str(exc)}), 400
+        except Exception as exc:
+            return jsonify({"ok": False, "message": str(exc)}), 500
 
     return app

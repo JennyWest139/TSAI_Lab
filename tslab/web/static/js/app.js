@@ -1,5 +1,5 @@
 /**
- * TSLab Dashboard — Theme, Navigation, Mock-Workflows
+ * TSLab Dashboard — Theme, Navigation, Workflows (Design v1 + unabhängige Von/Bis-Daten)
  */
 const TSLab = (() => {
   const STORAGE_THEME = "tslab-theme";
@@ -43,11 +43,78 @@ const TSLab = (() => {
   }
 
   function positionBar(bar, startIso, endIso, globalStart, globalEnd) {
+    if (!bar || !startIso || !endIso) return;
     const total = globalEnd - globalStart || 1;
     const left = ((parseDate(startIso) - globalStart) / total) * 100;
     const width = ((parseDate(endIso) - parseDate(startIso)) / total) * 100;
     bar.style.left = `${Math.max(0, left)}%`;
     bar.style.width = `${Math.max(2, width)}%`;
+  }
+
+  function fillDateSelect(selectEl, dates, selected) {
+    if (!selectEl) return;
+    selectEl.innerHTML = "";
+    dates.forEach((d) => {
+      const opt = document.createElement("option");
+      opt.value = d;
+      opt.textContent = d;
+      selectEl.appendChild(opt);
+    });
+    if (selected && dates.includes(selected)) {
+      selectEl.value = selected;
+    } else if (dates.length) {
+      selectEl.value = dates[dates.length - 1];
+    }
+  }
+
+  /**
+   * Zwei unabhängige Auswahlfelder — nur Zeitstempel aus dates[].
+   * Validierung: von < bis (beide in dates).
+   */
+  function bindIndependentDateRange(vonEl, bisEl, dates, suggestedVon, suggestedBis, onChange) {
+    if (!vonEl || !bisEl || !dates || dates.length < 2) return () => false;
+
+    fillDateSelect(vonEl, dates, suggestedVon || dates[0]);
+    fillDateSelect(bisEl, dates, suggestedBis || dates[dates.length - 1]);
+
+    const validate = () => {
+      const von = vonEl.value;
+      const bis = bisEl.value;
+      const ok =
+        dates.includes(von) &&
+        dates.includes(bis) &&
+        von < bis;
+
+      vonEl.classList.toggle("field-invalid", !ok);
+      bisEl.classList.toggle("field-invalid", !ok);
+
+      const errVon = document.getElementById(`${vonEl.id}Error`);
+      const errBis = document.getElementById(`${bisEl.id}Error`);
+      const msg = ok ? "" : "Von-Datum muss vor Bis-Datum liegen (gültige Zeitstempel).";
+      if (errVon) {
+        errVon.hidden = ok;
+        errVon.textContent = msg;
+      }
+      if (errBis) {
+        errBis.hidden = ok;
+        errBis.textContent = msg;
+      }
+
+      onChange?.(ok, von, bis);
+      return ok;
+    };
+
+    vonEl.onchange = validate;
+    bisEl.onchange = validate;
+    validate();
+    return validate;
+  }
+
+  function updateWindowBar(bar, vonIso, bisIso, globalStart, globalEnd) {
+    if (!bar || !vonIso || !bisIso) return;
+    const ok = vonIso < bisIso;
+    bar.hidden = !ok;
+    if (ok) positionBar(bar, vonIso, bisIso, globalStart, globalEnd);
   }
 
   async function fetchOverlap(a, b) {
@@ -56,59 +123,82 @@ const TSLab = (() => {
     return res.json();
   }
 
-  function renderOverlap(data) {
-    const viz = document.getElementById("overlapViz");
-    const ph = document.getElementById("overlapPlaceholder");
-    if (!viz || !ph) return;
-
-    ph.hidden = true;
-    viz.hidden = false;
-
-    const gStart = parseDate(
-      data.series_a.first_date < data.series_b.first_date
-        ? data.series_a.first_date
-        : data.series_b.first_date
-    );
-    const gEnd = parseDate(
-      data.series_a.last_date > data.series_b.last_date
-        ? data.series_a.last_date
-        : data.series_b.last_date
-    );
-
-    positionBar(document.getElementById("barA"), data.series_a.first_date, data.series_a.last_date, gStart, gEnd);
-    positionBar(document.getElementById("barB"), data.series_b.first_date, data.series_b.last_date, gStart, gEnd);
-    positionBar(document.getElementById("barOverlap"), data.overlap_start, data.overlap_end, gStart, gEnd);
-
-    const startInput = document.getElementById("corrStart");
-    const endInput = document.getElementById("corrEnd");
-    const freqSelect = document.getElementById("frequency");
-    if (startInput) startInput.value = data.suggested_start;
-    if (endInput) endInput.value = data.suggested_end;
-    if (freqSelect) freqSelect.value = data.suggested_frequency;
-
-    const meta = document.getElementById("overlapMeta");
-    if (meta) {
-      meta.innerHTML = `
-        <dt>Serie A</dt><dd>${data.series_a.first_date} → ${data.series_a.last_date} (${data.series_a.observation_count} n)</dd>
-        <dt>Serie B</dt><dd>${data.series_b.first_date} → ${data.series_b.last_date} (${data.series_b.observation_count} n)</dd>
-        <dt>Überlappung</dt><dd>${data.overlap_start} → ${data.overlap_end} (~${data.overlap_observations} Monate)</dd>
-        <dt>Rhythmus (Vorschlag)</dt><dd>${data.suggested_frequency_label}</dd>
-      `;
-    }
-  }
-
   function initCorrelation() {
     const selA = document.getElementById("seriesA");
     const selB = document.getElementById("seriesB");
+    const vonSelect = document.getElementById("corrStart");
+    const bisSelect = document.getElementById("corrEnd");
+    const freqSelect = document.getElementById("frequency");
     const form = document.getElementById("correlationForm");
+    let validateDates = () => false;
+    let gStart;
+    let gEnd;
+
+    function refreshWindowBar() {
+      updateWindowBar(
+        document.getElementById("barWindow"),
+        vonSelect?.value,
+        bisSelect?.value,
+        gStart,
+        gEnd
+      );
+    }
+
+    function renderOverlap(data) {
+      const viz = document.getElementById("overlapViz");
+      const ph = document.getElementById("overlapPlaceholder");
+      if (!viz || !ph) return;
+
+      ph.hidden = true;
+      viz.hidden = false;
+
+      gStart = parseDate(
+        data.series_a.first_date < data.series_b.first_date
+          ? data.series_a.first_date
+          : data.series_b.first_date
+      );
+      gEnd = parseDate(
+        data.series_a.last_date > data.series_b.last_date
+          ? data.series_a.last_date
+          : data.series_b.last_date
+      );
+
+      positionBar(document.getElementById("barA"), data.series_a.first_date, data.series_a.last_date, gStart, gEnd);
+      positionBar(document.getElementById("barB"), data.series_b.first_date, data.series_b.last_date, gStart, gEnd);
+      positionBar(document.getElementById("barOverlap"), data.overlap_start, data.overlap_end, gStart, gEnd);
+
+      if (freqSelect && data.suggested_frequency) {
+        freqSelect.value = data.suggested_frequency;
+      }
+
+      const dates = data.dates || [];
+      validateDates = bindIndependentDateRange(
+        vonSelect,
+        bisSelect,
+        dates,
+        data.suggested_start,
+        data.suggested_end,
+        () => refreshWindowBar()
+      );
+
+      const meta = document.getElementById("overlapMeta");
+      if (meta) {
+        meta.innerHTML = `
+          <dt>Serie A</dt><dd>${data.series_a.first_date} → ${data.series_a.last_date} (${data.series_a.observation_count} n)</dd>
+          <dt>Serie B</dt><dd>${data.series_b.first_date} → ${data.series_b.last_date} (${data.series_b.observation_count} n)</dd>
+          <dt>Schnittmenge</dt><dd>${data.overlap_start} → ${data.overlap_end} (${data.overlap_observations} n)</dd>
+          <dt>Rhythmus (Vorschlag)</dt><dd>${data.suggested_frequency_label}</dd>
+        `;
+      }
+      refreshWindowBar();
+    }
 
     async function update() {
       const a = selA?.value;
       const b = selB?.value;
       if (!a || !b || a === b) return;
       try {
-        const data = await fetchOverlap(a, b);
-        renderOverlap(data);
+        renderOverlap(await fetchOverlap(a, b));
       } catch {
         toast("Keine gemeinsame Datenbasis für diese Paarung.");
       }
@@ -120,6 +210,10 @@ const TSLab = (() => {
 
     form?.addEventListener("submit", async (e) => {
       e.preventDefault();
+      if (!validateDates()) {
+        toast("Bitte Von-Datum und Bis-Datum prüfen (Von < Bis, nur gültige Zeitstempel).");
+        return;
+      }
       const payload = Object.fromEntries(new FormData(form));
       const res = await fetch("/api/correlation/run", {
         method: "POST",
@@ -130,9 +224,16 @@ const TSLab = (() => {
       const panel = document.getElementById("corrResult");
       if (panel) {
         panel.hidden = false;
-        panel.innerHTML = `<strong>${data.message}</strong><br><code>${data.job?.output_preview || ""}</code>`;
+        if (data.ok) {
+          const link = data.job?.browse_url
+            ? ` <a href="${data.job.browse_url}" class="stat-link">Output-Ordner</a>`
+            : "";
+          panel.innerHTML = `<strong>${data.message}</strong>${link}`;
+        } else {
+          panel.innerHTML = `<strong>${data.message || "Fehler"}</strong>`;
+        }
       }
-      toast("Korrelationslauf simuliert");
+      toast(data.ok ? data.message : data.message || "Fehler");
     });
   }
 
@@ -143,18 +244,46 @@ const TSLab = (() => {
 
   function initTsa() {
     const sel = document.getElementById("tsaSeries");
+    const vonSelect = document.getElementById("trainStart");
+    const bisSelect = document.getElementById("trainEnd");
+    const forecastInput = document.getElementById("forecastEnd");
     const form = document.getElementById("tsaForm");
     const metaBox = document.getElementById("seriesMeta");
+    let validateTrainDates = () => false;
 
     async function updateMeta() {
       const slug = sel?.value;
-      if (!slug || !metaBox) return;
+      if (!slug) return;
       const s = await loadSeriesMeta(slug);
-      metaBox.innerHTML = `
-        <strong>${s.label_de}</strong><br>
-        Daten: <span class="mono">${s.first_date}</span> bis <span class="mono">${s.last_date}</span><br>
-        Beobachtungen: ${s.observation_count} · Rhythmus: ${s.frequency_label}
-      `;
+      const dates = s.dates || [];
+
+      if (metaBox) {
+        metaBox.innerHTML = `
+          <strong>${s.label_de}</strong><br>
+          Daten: <span class="mono">${s.first_date}</span> bis <span class="mono">${s.last_date}</span><br>
+          Beobachtungen: ${s.observation_count} · Rhythmus: ${s.frequency_label}
+        `;
+      }
+
+      const suggestedCutoff =
+        dates.find((d) => d.startsWith("2006-07")) ||
+        dates[Math.max(0, dates.length - 2)];
+
+      validateTrainDates = bindIndependentDateRange(
+        vonSelect,
+        bisSelect,
+        dates,
+        s.first_date,
+        suggestedCutoff,
+        (ok, von, bis) => {
+          if (forecastInput && ok && bis) {
+            forecastInput.min = bis;
+            if (!forecastInput.value || forecastInput.value < bis) {
+              forecastInput.value = bis;
+            }
+          }
+        }
+      );
     }
 
     sel?.addEventListener("change", updateMeta);
@@ -162,8 +291,16 @@ const TSLab = (() => {
 
     form?.addEventListener("submit", async (e) => {
       e.preventDefault();
+      if (!validateTrainDates()) {
+        toast("Training Von-Datum muss vor Bis-Datum liegen.");
+        return;
+      }
       const fd = new FormData(form);
       const models = fd.getAll("models");
+      if (!models.length) {
+        toast("Bitte mindestens ein Modell wählen.");
+        return;
+      }
       const payload = Object.fromEntries(fd.entries());
       payload.models = models;
       const res = await fetch("/api/tsa/run", {
@@ -175,22 +312,35 @@ const TSLab = (() => {
       const panel = document.getElementById("tsaResult");
       if (panel) {
         panel.hidden = false;
-        panel.innerHTML = `<strong>${data.message}</strong><br>Modelle: ${models.join(", ")}<br><code>${data.job?.output_preview || ""}</code>`;
+        if (data.ok) {
+          const link = data.job?.browse_url
+            ? ` <a href="${data.job.browse_url}" class="stat-link">Output-Ordner</a>`
+            : "";
+          panel.innerHTML = `<strong>${data.message}</strong>${link}`;
+        } else {
+          panel.innerHTML = `<strong>${data.message || "Fehler"}</strong>`;
+        }
       }
-      toast("TSA-Lauf simuliert");
+      toast(data.ok ? data.message : data.message || "Fehler");
     });
   }
 
   function initUpload() {
     const drop = document.getElementById("uploadDrop");
     const input = document.getElementById("fileInput");
-    const meta = document.getElementById("uploadMeta");
-    const fileName = document.getElementById("fileName");
+    const wizard = document.getElementById("uploadWizard");
+    const preview = document.getElementById("filePreview");
+    const fileMeta = document.getElementById("fileMeta");
+    const dateCol = document.getElementById("dateColumn");
+    const valueCol = document.getElementById("valueColumn");
+    const seriesName = document.getElementById("seriesName");
+    const freq = document.getElementById("uploadFrequency");
+    const sepInput = document.getElementById("uploadSep");
     const form = document.getElementById("uploadForm");
     const result = document.getElementById("uploadResult");
+    let pendingFile = null;
 
     drop?.addEventListener("click", () => input?.click());
-
     drop?.addEventListener("dragover", (e) => {
       e.preventDefault();
       drop.classList.add("dragover");
@@ -199,37 +349,61 @@ const TSLab = (() => {
     drop?.addEventListener("drop", (e) => {
       e.preventDefault();
       drop.classList.remove("dragover");
-      if (e.dataTransfer.files.length && input) {
-        input.files = e.dataTransfer.files;
-        showFile(e.dataTransfer.files[0].name);
-      }
+      if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
     });
-
     input?.addEventListener("change", () => {
-      if (input.files?.length) showFile(input.files[0].name);
+      if (input.files?.length) handleFile(input.files[0]);
     });
 
-    function showFile(name) {
-      if (fileName) fileName.textContent = name;
-      if (meta) meta.hidden = false;
+    async function handleFile(file) {
+      pendingFile = file;
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/upload/preview", { method: "POST", body: fd });
+      const data = await res.json();
+      if (!data.ok) {
+        toast(data.message || "Vorschau fehlgeschlagen");
+        return;
+      }
+      if (wizard) wizard.hidden = false;
+      if (preview) preview.value = data.preview_text || "";
+      if (fileMeta) fileMeta.textContent = `${data.filename} · ${data.line_count} Zeilen`;
+      if (sepInput) sepInput.value = data.sep || ";";
+      fillDateSelect(dateCol, data.columns, data.suggested_date_column);
+      fillDateSelect(valueCol, data.value_columns || data.columns, data.suggested_value_column);
+      if (seriesName) seriesName.value = data.suggested_value_column || "";
+      if (freq && data.frequencies) {
+        freq.innerHTML = "";
+        data.frequencies.forEach((f) => {
+          const o = document.createElement("option");
+          o.value = f.id;
+          o.textContent = f.label;
+          freq.appendChild(o);
+        });
+        if (data.suggested_frequency) freq.value = data.suggested_frequency;
+      }
     }
 
     form?.addEventListener("submit", async (e) => {
       e.preventDefault();
+      if (!pendingFile) {
+        toast("Bitte Datei wählen");
+        return;
+      }
       const fd = new FormData(form);
+      fd.set("file", pendingFile);
       const res = await fetch("/api/upload", { method: "POST", body: fd });
       const data = await res.json();
       if (result) {
         result.hidden = false;
         result.innerHTML = data.ok
-          ? `<strong>${data.message}</strong><br>Slug: <code>${data.series?.slug}</code>`
+          ? `<strong>${data.message}</strong> · <a href="/series" class="stat-link">Zeitreihen</a>`
           : data.message;
       }
-      toast(data.ok ? "Upload simuliert" : "Upload fehlgeschlagen");
+      toast(data.ok ? "Import OK" : data.message || "Fehler");
     });
   }
 
   initCore();
-
   return { initCorrelation, initTsa, initUpload, toast };
 })();

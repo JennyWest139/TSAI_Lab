@@ -16,21 +16,22 @@ from tslab.db.models import Base
 SETUP_HINT = """
 Datenbank nicht erreichbar.
 
-SQLite (empfohlen ohne PostgreSQL-Server):
-  python scripts/setup_sqlite.py
-
-Oder manuell:
-  $env:TSLAB_DATABASE_URL = "sqlite:///<absoluter-pfad>/data/tslab.db"
-  python scripts/db_init.py
-  python scripts/db_seed_werte.py
-
-PostgreSQL:
+PostgreSQL (Standard fuer Web-Dashboard und Analysen):
   docker compose up -d
+  python scripts/prepare_web_postgres.py
+
+Oder lokale Installation (Windows):
+  Dienst postgresql-x64-… starten (services.msc)
+  python scripts/setup_postgres.py
   python scripts/db_init.py
   python scripts/db_seed_werte.py
+
+SQLite (nur Fallback / Tests):
+  python scripts/setup_sqlite.py
 
 Ohne DB (nur CSV):
   python scripts/db_load_series.py pdax --from-csv --start 1987-12-01 --end 2007-06-30
+  python scripts/run_web.py --mock
 """
 
 _engines: dict[str, Engine] = {}
@@ -81,6 +82,25 @@ def _sqlite_url() -> str:
     path = (project_root() / rel).resolve()
     path.parent.mkdir(parents=True, exist_ok=True)
     return f"sqlite:///{path.as_posix()}"
+
+
+def get_database_kind() -> str:
+    """postgresql | sqlite"""
+    url = get_database_url()
+    if url.startswith("sqlite"):
+        return "sqlite"
+    if url.startswith("postgresql"):
+        return "postgresql"
+    return "other"
+
+
+def get_database_display_name() -> str:
+    kind = get_database_kind()
+    if kind == "postgresql":
+        return "PostgreSQL"
+    if kind == "sqlite":
+        return "SQLite"
+    return "Datenbank"
 
 
 def get_sqlite_file_path() -> Path | None:

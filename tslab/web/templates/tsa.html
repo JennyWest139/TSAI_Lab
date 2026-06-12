@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}TSA{% endblock %}
 {% block page_title %}Time Series Analysis{% endblock %}
-{% block page_subtitle %}Training, Prognosefenster und Modellauswahl — Mock-Workflow{% endblock %}
+{% block page_subtitle %}Training, Prognosefenster und Modellauswahl{% endblock %}
 
 {% block content %}
 <form id="tsaForm" class="analysis-form">
@@ -44,19 +44,21 @@
     <h2>3 · Zeiträume</h2>
     <div class="grid three-col">
       <div class="field-row">
-        <label for="trainStart">Training ab</label>
-        <input type="date" id="trainStart" name="train_start" value="1987-12-01">
+        <label for="trainStart">Training Von-Datum</label>
+        <select id="trainStart" name="train_start" required></select>
+        <span class="field-error" id="trainStartError" hidden></span>
       </div>
       <div class="field-row">
-        <label for="trainEnd">Cutoff / Training bis</label>
-        <input type="date" id="trainEnd" name="train_end" value="2006-07-01">
+        <label for="trainEnd">Training Bis-Datum (Cutoff)</label>
+        <select id="trainEnd" name="train_end" required></select>
+        <span class="field-error" id="trainEndError" hidden></span>
       </div>
       <div class="field-row">
         <label for="forecastEnd">Prognose bis</label>
         <input type="date" id="forecastEnd" name="forecast_end" value="2008-07-01">
       </div>
     </div>
-    <p class="hint">Verfügbarer Datenbereich wird nach Reihenwahl angezeigt. <code>forecast_end</code> darf über das DB-Ende hinausgehen (reine Prognose).</p>
+    <p class="hint">Training Von/Bis: nur Zeitstempel aus der gewählten Zeitreihe, unabhängig wählbar, Von &lt; Bis. Prognose bis darf über das DB-Ende hinausgehen.</p>
   </section>
 
   <section class="card">
@@ -93,7 +95,7 @@
   </section>
 
   <div class="form-actions">
-    <button type="submit" class="btn btn-primary btn-lg">TSA starten (Mock)</button>
+    <button type="submit" class="btn btn-primary btn-lg">TSA starten</button>
     <a href="{{ url_for('tsa_history_page') }}" class="btn btn-ghost">Historie</a>
   </div>
 </form>
@@ -102,7 +104,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
-  TSLab.initTsa();
-</script>
+<script>TSLab.initTsa();</script>
 {% endblock %}

@@ -1,10 +1,14 @@
 {% extends "base.html" %}
 {% block title %}TSA-Historie{% endblock %}
 {% block page_title %}TSA-Historie{% endblock %}
-{% block page_subtitle %}Durchgeführte Time-Series-Analysen (Mock){% endblock %}
+{% block page_subtitle %}Durchgeführte Time-Series-Analysen{% endblock %}
 
 {% block content %}
 <section class="card">
+  <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
+    <h2>Läufe</h2>
+    <a href="{{ url_for('tsa_page') }}" class="btn btn-ghost">Neue TSA</a>
+  </div>
   <div class="table-wrap">
     <table class="data-table">
       <thead>
@@ -12,10 +16,9 @@
           <th>Datum</th>
           <th>Serie</th>
           <th>Modelle</th>
-          <th>Modus</th>
           <th>Training</th>
-          <th>Prognose bis</th>
           <th>Status</th>
+          <th>Output</th>
         </tr>
       </thead>
       <tbody>
@@ -24,11 +27,12 @@
           <td class="mono">{{ r.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
           <td>{{ r.series_slug }}</td>
           <td>{% for m in r.models %}<span class="badge badge-sm">{{ m }}</span> {% endfor %}</td>
-          <td><span class="badge">{{ r.analysis_mode }}</span></td>
           <td class="mono">{{ r.train_start }} → {{ r.train_end }}</td>
-          <td class="mono">{{ r.forecast_end }}</td>
           <td><span class="badge badge-ok">{{ r.status }}</span></td>
+          <td>{% if r.browse_url %}<a href="{{ r.browse_url }}" class="stat-link">Ordner</a>{% else %}—{% endif %}</td>
         </tr>
+        {% else %}
+        <tr><td colspan="6" class="muted">Keine Einträge — <a href="{{ url_for('tsa_page') }}">TSA starten</a></td></tr>
         {% endfor %}
       </tbody>
     </table>

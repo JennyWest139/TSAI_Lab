@@ -18,7 +18,7 @@ from tslab.services.analysis_window import StudyDates, prepare_tsa_split, resolv
 from tslab.services.forecast_context import ForecastPlotData, build_forecast_plot_data
 from tslab.services.forecast_horizons import ForecastHorizons, build_forecast_horizons
 from tslab.services.forecast_plot_window import ForecastPlotWindow
-from tslab.services.timeseries_store import load_pdax_full
+from tslab.services.timeseries_store import load_series_full_pandas
 
 
 @dataclass(frozen=True)
@@ -42,12 +42,13 @@ def load_tsa_context(
     session: Session,
     mode_config: AnalysisModeConfig,
     *,
+    series_slug: str = "pdax",
     start_date: str | None = None,
     end_date: str | None = None,
     forecast_end: str | None = None,
     plot_window: ForecastPlotWindow | None = None,
 ) -> TSAContext:
-    pdax_full = load_pdax_full(session)
+    pdax_full = load_series_full_pandas(session, series_slug)
     eff_window = plot_window or ForecastPlotWindow.from_defaults(load_defaults())
     eff_start, eff_end = resolve_study_dates_for_mode(
         mode_config, start_date=start_date, end_date=end_date

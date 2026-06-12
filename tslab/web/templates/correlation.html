@@ -50,7 +50,10 @@
           </div>
           <div class="timeline-row overlap-row">
             <span class="timeline-label">∩</span>
-            <div class="timeline-track"><div class="timeline-bar bar-overlap" id="barOverlap"></div></div>
+            <div class="timeline-track">
+              <div class="timeline-bar bar-overlap" id="barOverlap"></div>
+              <div class="timeline-bar bar-window" id="barWindow" hidden></div>
+            </div>
           </div>
         </div>
         <dl class="meta-dl" id="overlapMeta"></dl>
@@ -62,12 +65,14 @@
     <h2>3 · Analysefenster & Rhythmus</h2>
     <div class="grid three-col">
       <div class="field-row">
-        <label for="corrStart">Start</label>
-        <input type="date" id="corrStart" name="start_date">
+        <label for="corrStart">Von-Datum</label>
+        <select id="corrStart" name="start_date" required></select>
+        <span class="field-error" id="corrStartError" hidden></span>
       </div>
       <div class="field-row">
-        <label for="corrEnd">Ende</label>
-        <input type="date" id="corrEnd" name="end_date">
+        <label for="corrEnd">Bis-Datum</label>
+        <select id="corrEnd" name="end_date" required></select>
+        <span class="field-error" id="corrEndError" hidden></span>
       </div>
       <div class="field-row">
         <label for="frequency">Rhythmus</label>
@@ -83,11 +88,11 @@
         <input type="number" id="maxLag" name="max_lag" value="24" min="1" max="120">
       </div>
     </div>
-    <p class="hint">Sie können enger als die Überlappung wählen (z. B. späterer Start, früheres Ende) oder einen feineren Rhythmus — sofern die Daten es hergeben.</p>
+    <p class="hint">Von- und Bis-Datum sind unabhängig wählbar (nur gültige Zeitstempel der Schnittmenge). Bedingung: Von-Datum liegt vor Bis-Datum.</p>
   </section>
 
   <div class="form-actions">
-    <button type="submit" class="btn btn-primary btn-lg">Korrelation starten (Mock)</button>
+    <button type="submit" class="btn btn-primary btn-lg">Korrelation starten</button>
     <a href="{{ url_for('correlation_history_page') }}" class="btn btn-ghost">Historie</a>
   </div>
 </form>
@@ -96,7 +101,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
-  TSLab.initCorrelation();
-</script>
+<script>TSLab.initCorrelation();</script>
 {% endblock %}
