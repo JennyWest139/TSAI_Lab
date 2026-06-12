@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}Übersicht{% endblock %}
+{% block page_title %}Übersicht{% endblock %}
+{% block page_subtitle %}PDAX, DAX und Erwerbslosenquote — Mock-Daten für den UI-Prototyp{% endblock %}
+
+{% block content %}
+<div class="grid stats">
+  <div class="card stat-card">
+    <span class="stat-label">Zeitreihen</span>
+    <span class="stat-value">{{ series|length }}</span>
+    <span class="stat-hint">in der Datenbank (Mock)</span>
+  </div>
+  <div class="card stat-card">
+    <span class="stat-label">Korrelationen</span>
+    <span class="stat-value">{{ corr_count }}</span>
+    <a href="{{ url_for('correlation_history_page') }}" class="stat-link">Historie ansehen →</a>
+  </div>
+  <div class="card stat-card">
+    <span class="stat-label">TSA-Läufe</span>
+    <span class="stat-value">{{ tsa_count }}</span>
+    <a href="{{ url_for('tsa_history_page') }}" class="stat-link">Historie ansehen →</a>
+  </div>
+</div>
+
+<div class="grid two-col">
+  <section class="card">
+    <div class="card-header">
+      <h2>Schnellstart</h2>
+    </div>
+    <div class="quick-actions">
+      <a href="{{ url_for('upload_page') }}" class="action-tile">
+        <strong>Zeitreihe hochladen</strong>
+        <span>CSV mit Datum und Wert</span>
+      </a>
+      <a href="{{ url_for('correlation_page') }}" class="action-tile">
+        <strong>Korrelation</strong>
+        <span>Zwei Reihen, Überlappung, Lags</span>
+      </a>
+      <a href="{{ url_for('tsa_page') }}" class="action-tile">
+        <strong>Time Series Analysis</strong>
+        <span>ARMA · GARCH · Prognosen</span>
+      </a>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-header">
+      <h2>Favoriten (Mock)</h2>
+    </div>
+    <ul class="series-mini-list">
+      {% for s in series if s.slug in ['pdax', 'erwerbslose'] %}
+      <li>
+        <div>
+          <strong>{{ s.label_de }}</strong>
+          <span class="mono">{{ s.first_date }} → {{ s.last_date }}</span>
+        </div>
+        <span class="badge">{{ s.frequency_label }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+    <p class="hint">Typischer Korrelationslauf: PDAX vs. Erwerbslosenquote (1991–2007).</p>
+  </section>
+</div>
+
+<section class="card">
+  <div class="card-header">
+    <h2>Geplanter Ablauf (nach Backend-Anbindung)</h2>
+  </div>
+  <ol class="flow-steps">
+    <li><strong>Upload</strong> — Reihe in <code>observations</code> speichern</li>
+    <li><strong>Analyse</strong> — Fenster, Rhythmus, Modus <em>thesis</em> / <em>extended</em></li>
+    <li><strong>Ergebnis</strong> — PNG-Grafiken, Kennzahlen, später interaktive Charts</li>
+    <li><strong>Bericht</strong> — PDF/Word, Excel mit Quantilen, DB-Export (folgt)</li>
+  </ol>
+</section>
+{% endblock %}

@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Zeitreihen{% endblock %}
+{% block page_title %}Verfügbare Zeitreihen{% endblock %}
+{% block page_subtitle %}Alle Reihen in der Datenbank — Mock-Vorschau{% endblock %}
+
+{% block content %}
+<section class="card">
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Slug</th>
+          <th>Von</th>
+          <th>Bis</th>
+          <th>n</th>
+          <th>Rhythmus</th>
+          <th>Quelle</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in series %}
+        <tr>
+          <td><strong>{{ s.label_de }}</strong></td>
+          <td class="mono">{{ s.slug }}</td>
+          <td>{{ s.first_date }}</td>
+          <td>{{ s.last_date }}</td>
+          <td>{{ s.observation_count }}</td>
+          <td><span class="badge">{{ s.frequency_label }}</span></td>
+          <td class="muted">{{ s.source_file or '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

@@ -1,0 +1,65 @@
+# Referenz-Koeffizienten aus Diplomarbeit JW 2008 (R / rugarch), Kap. 4.1–4.3.
+# PDF: config/defaults.yaml -> diplomarbeit_pdf
+
+meta:
+  source: "Diplomarbeit JW 2008, Schaetzung mit R (rugarch / arima)"
+  notes: >
+    ARMA: Vorzeichen wie in der Diplomarbeit (ar1, ma1). Python/statsmodels nutzt
+    innovations_mle und eine andere Parametrisierung; Abgleich ueber thesis_coefficients.py.
+    GARCH-omega ist auf unskalierten Renditen (ohne GARCH_SCALE).
+    AIC bei GARCH/ARMA-GARCH in R (rugarch) ist nicht 1:1 mit arch/statsmodels vergleichbar.
+
+study:
+  analysis_mode: thesis
+  start_date: "1987-12-01"
+  # Primaerer PDF-Abgleich (Training bis 07/2006, Prognose ab 07/2006)
+  end_date: "2006-07-01"
+
+models:
+  arma11:
+    label: "ARMA(1,1) auf kont. Renditen"
+    parameters:
+      intercept: 0.007819
+      ar1: -0.927657
+      ma1: 0.901601
+      sigma2: 0.004064
+    information_criteria:
+      aic: -586.87
+    tolerances:
+      abs: 0.08
+      rel: 0.12
+
+  garch11:
+    label: "GARCH(1,1), mean arma(0,0)"
+    parameters:
+      mu: -9.426e-06
+      omega: 0.000410252
+      alpha1: 0.100000
+      beta1: 0.800000
+    information_criteria:
+      aic: 2.81
+    compare_information_criteria: false
+    skip_parameters: [mu]
+    python_spec: "GARCH auf mittelwertbereinigten Renditen (thesis); mu in R ~0"
+    tolerances:
+      abs: 0.00015
+      rel: 0.25
+
+  arma11_garch11_joint:
+    label: "ARMA(1,1)-GARCH(1,1) gemeinsam (rugarch)"
+    parameters:
+      mu: 3.79536e-05
+      ar1: -0.445743
+      ma1: 0.426200
+      omega: 0.000307690
+      alpha1: 0.325000
+      beta1: 0.600000
+    information_criteria:
+      aic: 2.836017
+    compare_information_criteria: false
+    # Python arch: gemeinsam nur AR(1)+GARCH(1,1), kein MA-Term
+    python_spec: "arch AR(1)+GARCH(1,1) auf mittelwertbereinigten Renditen"
+    skip_parameters: [mu, ma1, ar1]
+    tolerances:
+      abs: 0.0002
+      rel: 0.30

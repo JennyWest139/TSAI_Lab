@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Upload{% endblock %}
+{% block page_title %}Zeitreihe hochladen{% endblock %}
+{% block page_subtitle %}CSV mit Datums- und Wertspalte — aktuell nur UI-Simulation{% endblock %}
+
+{% block content %}
+<section class="card">
+  <form id="uploadForm" class="upload-zone" enctype="multipart/form-data">
+    <input type="file" id="fileInput" name="file" accept=".csv,.txt" hidden>
+    <div class="upload-drop" id="uploadDrop">
+      <div class="upload-icon">↑</div>
+      <p><strong>Datei hier ablegen</strong> oder klicken zum Auswählen</p>
+      <p class="hint">Erwartet: Semikolon-CSV, Spalten Datum + Wert (wie Werte.csv)</p>
+    </div>
+    <div class="upload-meta" id="uploadMeta" hidden>
+      <span id="fileName"></span>
+      <button type="submit" class="btn btn-primary">Hochladen (Mock)</button>
+    </div>
+  </form>
+  <div id="uploadResult" class="result-panel" hidden></div>
+</section>
+
+<section class="card">
+  <h2>Hinweise</h2>
+  <ul class="hint-list">
+    <li>Upload schreibt später in PostgreSQL (<code>tslab</code>), Tabelle <code>observations</code>.</li>
+    <li>Bestehende Uploads werden nicht überschrieben — neue Version als eigene Serie oder Merge nach Regel.</li>
+    <li>Nach erfolgreichem Import erscheint die Reihe unter <a href="{{ url_for('series_page') }}">Zeitreihen</a>.</li>
+  </ul>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  TSLab.initUpload();
+</script>
+{% endblock %}

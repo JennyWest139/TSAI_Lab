@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Korrelations-Historie{% endblock %}
+{% block page_title %}Korrelations-Historie{% endblock %}
+{% block page_subtitle %}Bereits durchgeführte Kreuzkorrelationen (Mock){% endblock %}
+
+{% block content %}
+<section class="card">
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Datum</th>
+          <th>Serie A</th>
+          <th>Serie B</th>
+          <th>Fenster</th>
+          <th>Modus</th>
+          <th>Best |r|</th>
+          <th>Lag</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in runs %}
+        <tr>
+          <td class="mono">{{ r.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+          <td>{{ r.series_a }}</td>
+          <td>{{ r.series_b }}</td>
+          <td class="mono">{{ r.start_date }} → {{ r.end_date }}</td>
+          <td><span class="badge">{{ r.analysis_mode }}</span></td>
+          <td>{% if r.best_r is not none %}{{ '%.3f'|format(r.best_r|abs) }}{% else %}—{% endif %}</td>
+          <td>{% if r.best_lag is not none %}{{ r.best_lag }}{% else %}—{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="hint">Später: Link zum Output-Ordner (<code>cross_correlation.png</code>, CSV).</p>
+</section>
+{% endblock %}

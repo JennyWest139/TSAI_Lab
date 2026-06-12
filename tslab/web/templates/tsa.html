@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}TSA{% endblock %}
+{% block page_title %}Time Series Analysis{% endblock %}
+{% block page_subtitle %}Training, Prognosefenster und Modellauswahl — Mock-Workflow{% endblock %}
+
+{% block content %}
+<form id="tsaForm" class="analysis-form">
+  <div class="grid two-col">
+    <section class="card">
+      <h2>1 · Zeitreihe & Modus</h2>
+      <div class="field-row">
+        <label for="tsaSeries">Zeitreihe</label>
+        <select id="tsaSeries" name="series_slug" required>
+          {% for s in series %}
+          <option value="{{ s.slug }}" {% if s.slug == 'pdax' %}selected{% endif %}>{{ s.label_de }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field-row">
+        <label for="tsaMode">Analysemodus</label>
+        <select id="tsaMode" name="analysis_mode">
+          <option value="thesis" selected>thesis — 12/1987 … 07/2007, kont. Renditen</option>
+          <option value="extended">extended — Detrending, zweistufiges ARMA-GARCH</option>
+        </select>
+      </div>
+      <div id="seriesMeta" class="meta-box"></div>
+    </section>
+
+    <section class="card">
+      <h2>2 · Modelle</h2>
+      <div class="model-grid">
+        {% for m in models %}
+        <label class="model-card">
+          <input type="checkbox" name="models" value="{{ m.id }}" {% if m.id == 'arma-garch' %}checked{% endif %}>
+          <strong>{{ m.label }}</strong>
+          <span>{{ m.description }}</span>
+        </label>
+        {% endfor %}
+      </div>
+    </section>
+  </div>
+
+  <section class="card">
+    <h2>3 · Zeiträume</h2>
+    <div class="grid three-col">
+      <div class="field-row">
+        <label for="trainStart">Training ab</label>
+        <input type="date" id="trainStart" name="train_start" value="1987-12-01">
+      </div>
+      <div class="field-row">
+        <label for="trainEnd">Cutoff / Training bis</label>
+        <input type="date" id="trainEnd" name="train_end" value="2006-07-01">
+      </div>
+      <div class="field-row">
+        <label for="forecastEnd">Prognose bis</label>
+        <input type="date" id="forecastEnd" name="forecast_end" value="2008-07-01">
+      </div>
+    </div>
+    <p class="hint">Verfügbarer Datenbereich wird nach Reihenwahl angezeigt. <code>forecast_end</code> darf über das DB-Ende hinausgehen (reine Prognose).</p>
+  </section>
+
+  <section class="card">
+    <h2>4 · Prognose-Grafikfenster</h2>
+    <p class="hint">Auch bei langem Training nur der rechte Ausschnitt in den PNGs — Standard wie Diplomarbeit.</p>
+    <div class="grid three-col">
+      <div class="field-row">
+        <label for="plotPre">Historie vor Cutoff (Jahre)</label>
+        <input type="number" id="plotPre" name="plot_pre_years" value="3" min="0" max="30" step="0.5">
+      </div>
+      <div class="field-row">
+        <label for="plotForecast">Prognose sichtbar (Jahre)</label>
+        <input type="number" id="plotForecast" name="plot_forecast_years" value="1" min="0.25" max="10" step="0.25">
+      </div>
+      <div class="field-row">
+        <label for="plotPost">Holdout danach (Jahre)</label>
+        <input type="number" id="plotPost" name="plot_post_years" value="1" min="0" max="10" step="0.25">
+      </div>
+    </div>
+  </section>
+
+  <section class="card card-muted">
+    <h2>5 · Ergebnis (später)</h2>
+    <ul class="hint-list">
+      <li>PNG: Prognose Abgleich / Forward, Residuen, Niveau-Rücktransformation</li>
+      <li>Interaktive HTML-Charts (Hover-Werte) — Platzhalter vorbereitet</li>
+      <li>Bericht PDF/Word, Excel mit Quantilen, DB-Export — nach Modellwahl</li>
+    </ul>
+    <div class="preview-strip">
+      <div class="preview-thumb">forecast_abgleich.png</div>
+      <div class="preview-thumb">cross_correlation.png</div>
+      <div class="preview-thumb">residuals_acf.png</div>
+    </div>
+  </section>
+
+  <div class="form-actions">
+    <button type="submit" class="btn btn-primary btn-lg">TSA starten (Mock)</button>
+    <a href="{{ url_for('tsa_history_page') }}" class="btn btn-ghost">Historie</a>
+  </div>
+</form>
+
+<div id="tsaResult" class="result-panel" hidden></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  TSLab.initTsa();
+</script>
+{% endblock %}

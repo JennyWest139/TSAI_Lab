@@ -30,6 +30,7 @@ from tslab.services.forecast_plot_service import (
     write_thesis_forecast_plots,
 )
 from tslab.services.analysis_mode import (
+    AnalysisMode,
     add_analysis_mode_argument,
     get_analysis_mode_config,
     returns_display,
@@ -52,6 +53,14 @@ from tslab.services.forecast_plot_window import (
     ForecastPlotWindow,
     add_forecast_plot_window_arguments,
     forecast_plot_window_from_args,
+)
+from tslab.services.thesis_coefficients import (
+    compare_parameters,
+    extract_arma_garch_joint_r_style,
+    extract_arma_params_r_style,
+    extract_garch_params_r_style,
+    format_coefficient_abgleich,
+    load_thesis_reference,
 )
 from tslab.services.tsa_context import load_tsa_context
 
@@ -452,6 +461,57 @@ def main() -> None:
         _run_garch(ctx, out, garch_p, garch_q, plot_window)
     if "arma-garch" in models or "arma_garch" in models:
         _run_arma_garch(ctx, out, arma_p, arma_q, garch_p, garch_q, plot_window)
+
+    if mode_config.mode is AnalysisMode.THESIS:
+        ref = load_thesis_reference()
+        ref_models = ref.get("models", {})
+        y = ctx.train_lr
+        abgleich_rows = []
+        if "arma11" in ref_models:
+            arma_res, _ = fit_arma(y, (arma_p, arma_q))
+            abgleich_rows.extend(
+                compare_parameters(
+                    "arma11",
+                    ref_models["arma11"],
+                    extract_arma_params_r_style(arma_res),
+                )
+            )
+        if "garch11" in ref_models:
+            g_fit = fit_garch(y, mode_config, p=garch_p, q=garch_q)
+            abgleich_rows.extend(
+                compare_parameters(
+                    "garch11",
+                    ref_models["garch11"],
+                    extract_garch_params_r_style(g_fit),
+                )
+            )
+        if "arma11_garch11_joint" in ref_models and (
+            "arma-garch" in models or "arma_garch" in models
+        ):
+            ag_fit = fit_arma_garch(
+                y,
+                mode_config,
+                arma_order=(arma_p, arma_q),
+                garch_p=garch_p,
+                garch_q=garch_q,
+            )
+            abgleich_rows.extend(
+                compare_parameters(
+                    "arma11_garch11_joint",
+                    ref_models["arma11_garch11_joint"],
+                    extract_arma_garch_joint_r_style(ag_fit),
+                )
+            )
+        if abgleich_rows:
+            abgleich_text = format_coefficient_abgleich(
+                abgleich_rows,
+                study_label=f"{ctx.study.analysis_label} [{mode_config.slug}]",
+                n_obs=len(y),
+            )
+            (out / "coefficient_abgleich.txt").write_text(
+                abgleich_text, encoding="utf-8"
+            )
+            print(abgleich_text)
 
     print("TSA fertig.")
 

@@ -8,6 +8,11 @@ import numpy as np
 import pandas as pd
 from sqlalchemy.orm import Session
 
+from tslab.services.analysis_mode import (
+    AnalysisModeConfig,
+    prepare_model_returns,
+    returns_display,
+)
 from tslab.services.analysis_window import StudyDates
 from tslab.services.timeseries_store import load_series_full_pandas
 
@@ -20,6 +25,10 @@ class CorrelationResult:
     table: pd.DataFrame
     aligned_observations: int
     lag_definition: str
+    analysis_mode: str
+    data_basis: str
+    series_a_values: pd.Series
+    series_b_values: pd.Series
 
     @property
     def best_lag(self) -> int | None:
@@ -107,6 +116,17 @@ def load_pair_for_correlation(
     return a, b, study
 
 
+def prepare_correlation_returns(
+    levels_a: pd.Series,
+    levels_b: pd.Series,
+    mode_config: AnalysisModeConfig,
+) -> tuple[pd.Series, pd.Series]:
+    """Kont. Renditen gemaess Analysemodus (thesis vs. extended)."""
+    a = prepare_model_returns(levels_a, mode_config).rename(levels_a.name or "a")
+    b = prepare_model_returns(levels_b, mode_config).rename(levels_b.name or "b")
+    return a, b
+
+
 def align_series(a: pd.Series, b: pd.Series) -> pd.DataFrame:
     """Innere Vereinigung auf gemeinsame Daten (keine DB-Aenderung)."""
     df = pd.concat([a, b], axis=1, join="inner").dropna()
@@ -168,15 +188,18 @@ def run_correlation(
     slug_a: str,
     slug_b: str,
     *,
+    mode_config: AnalysisModeConfig,
     start_date: str | pd.Timestamp | None = None,
     end_date: str | pd.Timestamp | None = None,
     max_lag: int = 24,
     lags: list[int] | None = None,
 ) -> CorrelationResult:
-    a, b, study = load_pair_for_correlation(
+    levels_a, levels_b, study = load_pair_for_correlation(
         session, slug_a, slug_b, start_date=start_date, end_date=end_date
     )
+    a, b = prepare_correlation_returns(levels_a, levels_b, mode_config)
     table = compute_cross_correlation(a, b, max_lag=max_lag, lags=lags)
+    disp = returns_display(mode_config)
     return CorrelationResult(
         series_a=slug_a,
         series_b=slug_b,
@@ -184,4 +207,8 @@ def run_correlation(
         table=table,
         aligned_observations=len(align_series(a, b)),
         lag_definition=LAG_DEFINITION,
+        analysis_mode=mode_config.slug,
+        data_basis=disp.data_basis,
+        series_a_values=a,
+        series_b_values=b,
     )

@@ -38,7 +38,8 @@ def plot_cross_correlation_bars(result: CorrelationResult, path: Path) -> Path:
     ax.set_xlabel("Lag h")
     ax.set_ylabel("Pearson-Korrelation")
     ax.set_title(
-        f"Kreuzkorrelation: {result.series_a} vs {result.series_b}\n"
+        f"Kreuzkorrelation: {result.series_a} vs {result.series_b} "
+        f"[{result.analysis_mode}]\n"
         f"Fenster: {result.study.analysis_label} ({result.aligned_observations} gemeinsame Monate)"
     )
     fig.text(0.5, 0.01, LAG_DEFINITION, ha="center", fontsize=7, style="italic")
@@ -105,7 +106,9 @@ def plot_aligned_series(result: CorrelationResult, a: pd.Series, b: pd.Series, p
     ax_left.tick_params(axis="y", labelcolor=color_a)
     ax_right.tick_params(axis="y", labelcolor=color_b)
 
-    ax_left.set_title(f"Zeitreihen (Originalwerte) – {result.study.analysis_label}")
+    ax_left.set_title(
+        f"Zeitreihen (kont. Renditen, {result.analysis_mode}) – {result.study.analysis_label}"
+    )
     ax_left.set_xlabel("Zeit (Monatsdaten)")
 
     ax_left.legend(
@@ -134,7 +137,8 @@ def plot_aligned_series(result: CorrelationResult, a: pd.Series, b: pd.Series, p
     fig.text(
         0.5,
         0.02,
-        "Datengrundlage: observations (Upload-DB), nur Lesen, kein Schreiben\n"
+        f"Datengrundlage: {result.data_basis}\n"
+        "Quelle: observations (Upload-DB), nur Lesen, kein Schreiben\n"
         + trend_note,
         ha="center",
         fontsize=7,

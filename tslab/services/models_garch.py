@@ -69,6 +69,44 @@ class VolatilityForecast:
     index: pd.DatetimeIndex
 
 
+def fit_garch_rugarch_style(
+    y: pd.Series,
+    *,
+    p: int = 1,
+    q: int = 1,
+    dist: str = "normal",
+    scale: float = GARCH_SCALE,
+) -> GarchFitResult:
+    """GARCH(p,q) wie R rugarch arma(0,0)+garch (Mean im Modell, ohne Vorzentrierung)."""
+    clean = _with_monthly_freq(y)
+    scaled = clean * scale
+    model = arch_model(
+        scaled,
+        mean="Constant",
+        vol="GARCH",
+        p=p,
+        q=q,
+        dist=dist,
+        rescale=False,
+    )
+    res = model.fit(disp="off")
+    cond_vol = pd.Series(
+        res.conditional_volatility / scale,
+        index=clean.index,
+        name="conditional_volatility",
+    )
+    std_resid = pd.Series(res.std_resid, index=clean.index, name="std_resid")
+    return GarchFitResult(
+        result=res,
+        scale=scale,
+        mean_model="Constant",
+        vol_order=(p, q),
+        conditional_volatility=cond_vol,
+        standardized_residuals=std_resid,
+        mean_offset=0.0,
+    )
+
+
 def fit_garch(
     y: pd.Series,
     mode_config: AnalysisModeConfig,

@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}TSA-Historie{% endblock %}
+{% block page_title %}TSA-Historie{% endblock %}
+{% block page_subtitle %}Durchgeführte Time-Series-Analysen (Mock){% endblock %}
+
+{% block content %}
+<section class="card">
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Datum</th>
+          <th>Serie</th>
+          <th>Modelle</th>
+          <th>Modus</th>
+          <th>Training</th>
+          <th>Prognose bis</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in runs %}
+        <tr>
+          <td class="mono">{{ r.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+          <td>{{ r.series_slug }}</td>
+          <td>{% for m in r.models %}<span class="badge badge-sm">{{ m }}</span> {% endfor %}</td>
+          <td><span class="badge">{{ r.analysis_mode }}</span></td>
+          <td class="mono">{{ r.train_start }} → {{ r.train_end }}</td>
+          <td class="mono">{{ r.forecast_end }}</td>
+          <td><span class="badge badge-ok">{{ r.status }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

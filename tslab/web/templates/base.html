@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="de" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}TSLab{% endblock %} · Zeitreihenanalyse</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <span class="brand-mark">TS</span>
+        <div>
+          <strong>TSLab</strong>
+          <small>Zeitreihen · Diplomarbeit</small>
+        </div>
+      </div>
+      <nav class="nav">
+        <a href="{{ url_for('dashboard') }}" class="nav-link {% if page == 'dashboard' %}active{% endif %}">
+          <span class="nav-icon">◉</span> Übersicht
+        </a>
+        <a href="{{ url_for('upload_page') }}" class="nav-link {% if page == 'upload' %}active{% endif %}">
+          <span class="nav-icon">↑</span> Upload
+        </a>
+        <a href="{{ url_for('series_page') }}" class="nav-link {% if page == 'series' %}active{% endif %}">
+          <span class="nav-icon">≡</span> Zeitreihen
+        </a>
+        <div class="nav-section">Korrelation</div>
+        <a href="{{ url_for('correlation_page') }}" class="nav-link {% if page == 'correlation' %}active{% endif %}">
+          <span class="nav-icon">⇄</span> Neue Analyse
+        </a>
+        <a href="{{ url_for('correlation_history_page') }}" class="nav-link {% if page == 'correlation_history' %}active{% endif %}">
+          <span class="nav-icon">⏱</span> Historie
+        </a>
+        <div class="nav-section">TSA</div>
+        <a href="{{ url_for('tsa_page') }}" class="nav-link {% if page == 'tsa' %}active{% endif %}">
+          <span class="nav-icon">∿</span> Neue Analyse
+        </a>
+        <a href="{{ url_for('tsa_history_page') }}" class="nav-link {% if page == 'tsa_history' %}active{% endif %}">
+          <span class="nav-icon">⏱</span> Historie
+        </a>
+      </nav>
+      <div class="sidebar-foot">
+        <span class="badge badge-muted">UI-Prototyp</span>
+        <small>Backend: Mock-Daten</small>
+      </div>
+    </aside>
+
+    <div class="main">
+      <header class="topbar">
+        <button type="button" class="btn-icon mobile-menu" id="menuToggle" aria-label="Menü">☰</button>
+        <div class="topbar-title">
+          <h1>{% block page_title %}Dashboard{% endblock %}</h1>
+          <p class="subtitle">{% block page_subtitle %}{% endblock %}</p>
+        </div>
+        <div class="topbar-actions">
+          <button type="button" class="btn-icon theme-toggle" id="themeToggle" aria-label="Theme wechseln" title="Hell / Dunkel">
+            <span class="theme-icon-light">☀</span>
+            <span class="theme-icon-dark">☽</span>
+          </button>
+        </div>
+      </header>
+
+      <main class="content">
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+  </div>
+
+  <div class="toast-container" id="toastContainer"></div>
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

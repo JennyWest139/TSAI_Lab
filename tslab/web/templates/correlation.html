@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}Korrelation{% endblock %}
+{% block page_title %}Kreuzkorrelation{% endblock %}
+{% block page_subtitle %}Zwei Reihen wählen, Überlappung prüfen, Fenster und Rhythmus anpassen{% endblock %}
+
+{% block content %}
+<form id="correlationForm" class="analysis-form">
+  <div class="grid two-col">
+    <section class="card">
+      <h2>1 · Reihenauswahl</h2>
+      <div class="field-row">
+        <label for="seriesA">Serie A</label>
+        <select id="seriesA" name="series_a" required>
+          <option value="">— wählen —</option>
+          {% for s in series %}
+          <option value="{{ s.slug }}" {% if s.slug == 'pdax' %}selected{% endif %}>{{ s.label_de }} ({{ s.slug }})</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field-row">
+        <label for="seriesB">Serie B</label>
+        <select id="seriesB" name="series_b" required>
+          <option value="">— wählen —</option>
+          {% for s in series %}
+          <option value="{{ s.slug }}" {% if s.slug == 'erwerbslose' %}selected{% endif %}>{{ s.label_de }} ({{ s.slug }})</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field-row">
+        <label for="analysisMode">Analysemodus</label>
+        <select id="analysisMode" name="analysis_mode">
+          <option value="thesis" selected>thesis — Diplomarbeit JW 2008</option>
+          <option value="extended">extended — volle Historie + Detrending</option>
+        </select>
+      </div>
+    </section>
+
+    <section class="card" id="overlapCard">
+      <h2>2 · Datenverfügbarkeit</h2>
+      <p class="hint" id="overlapPlaceholder">Wählen Sie zwei Reihen — die gemeinsame Spanne wird vorgeschlagen.</p>
+      <div id="overlapViz" class="overlap-viz" hidden>
+        <div class="timeline">
+          <div class="timeline-row">
+            <span class="timeline-label">A</span>
+            <div class="timeline-track"><div class="timeline-bar bar-a" id="barA"></div></div>
+          </div>
+          <div class="timeline-row">
+            <span class="timeline-label">B</span>
+            <div class="timeline-track"><div class="timeline-bar bar-b" id="barB"></div></div>
+          </div>
+          <div class="timeline-row overlap-row">
+            <span class="timeline-label">∩</span>
+            <div class="timeline-track"><div class="timeline-bar bar-overlap" id="barOverlap"></div></div>
+          </div>
+        </div>
+        <dl class="meta-dl" id="overlapMeta"></dl>
+      </div>
+    </section>
+  </div>
+
+  <section class="card">
+    <h2>3 · Analysefenster & Rhythmus</h2>
+    <div class="grid three-col">
+      <div class="field-row">
+        <label for="corrStart">Start</label>
+        <input type="date" id="corrStart" name="start_date">
+      </div>
+      <div class="field-row">
+        <label for="corrEnd">Ende</label>
+        <input type="date" id="corrEnd" name="end_date">
+      </div>
+      <div class="field-row">
+        <label for="frequency">Rhythmus</label>
+        <select id="frequency" name="frequency">
+          <option value="MS">Monatlich (Vorschlag)</option>
+          <option value="W">Wöchentlich</option>
+          <option value="D">Täglich</option>
+          <option value="Y">Jährlich</option>
+        </select>
+      </div>
+      <div class="field-row">
+        <label for="maxLag">Max. Lag</label>
+        <input type="number" id="maxLag" name="max_lag" value="24" min="1" max="120">
+      </div>
+    </div>
+    <p class="hint">Sie können enger als die Überlappung wählen (z. B. späterer Start, früheres Ende) oder einen feineren Rhythmus — sofern die Daten es hergeben.</p>
+  </section>
+
+  <div class="form-actions">
+    <button type="submit" class="btn btn-primary btn-lg">Korrelation starten (Mock)</button>
+    <a href="{{ url_for('correlation_history_page') }}" class="btn btn-ghost">Historie</a>
+  </div>
+</form>
+
+<div id="corrResult" class="result-panel" hidden></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  TSLab.initCorrelation();
+</script>
+{% endblock %}
