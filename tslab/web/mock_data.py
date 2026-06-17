@@ -5,6 +5,9 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta
 
+import numpy as np
+import pandas as pd
+
 
 @dataclass(frozen=True)
 class SeriesMeta:
@@ -193,6 +196,26 @@ def series_to_dict(s: SeriesMeta) -> dict:
     d["first_date"] = s.first_date.isoformat()
     d["last_date"] = s.last_date.isoformat()
     return d
+
+
+def mock_series_pandas(slug: str) -> pd.Series:
+    """Synthetische Monatsreihe fuer Mock-Modus (deterministisch pro Slug)."""
+    meta = series_by_slug(slug)
+    if meta is None:
+        raise LookupError(f"Unbekannte Mock-Serie: {slug}")
+
+    dates = pd.date_range(meta.first_date, meta.last_date, freq="MS")
+    bases = {"pdax": 120.0, "dax": 1500.0, "erwerbslose": 8.5, "dowjones": 3200.0}
+    growth = {"pdax": 0.004, "dax": 0.003, "erwerbslose": 0.001, "dowjones": 0.0025}
+    base = bases.get(slug, 100.0)
+    g = growth.get(slug, 0.002)
+    seed = sum(ord(c) for c in slug) % (2**31)
+    rng = np.random.default_rng(seed)
+    t = np.arange(len(dates), dtype=float)
+    trend = base * np.exp(g * t / 12.0)
+    noise = rng.normal(0, base * 0.015, len(dates))
+    values = np.maximum(trend + noise, base * 0.05)
+    return pd.Series(values, index=dates, name=slug)
 
 
 def pair_overlap(slug_a: str, slug_b: str) -> dict | None:

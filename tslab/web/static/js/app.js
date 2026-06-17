@@ -129,6 +129,11 @@ const TSLab = (() => {
     const vonSelect = document.getElementById("corrStart");
     const bisSelect = document.getElementById("corrEnd");
     const freqSelect = document.getElementById("frequency");
+    const modeSelect = document.getElementById("analysisMode");
+    const showReturnsEl = document.getElementById("corrShowReturns");
+    const previewCard = document.getElementById("corrPreviewCard");
+    const returnsChart = document.getElementById("corrReturnsChart");
+    const trendNote = document.getElementById("corrTrendNote");
     const form = document.getElementById("correlationForm");
     let validateDates = () => false;
     let gStart;
@@ -142,6 +147,47 @@ const TSLab = (() => {
         gStart,
         gEnd
       );
+      refreshPreview();
+    }
+
+    async function refreshPreview() {
+      const a = selA?.value;
+      const b = selB?.value;
+      const start = vonSelect?.value;
+      const end = bisSelect?.value;
+      if (!a || !b || a === b || !start || !end || start >= end) {
+        if (previewCard) previewCard.hidden = true;
+        return;
+      }
+      if (!window.TSLabCharts || !window.Plotly) return;
+
+      const params = new URLSearchParams({ a, b, start, end });
+      if (showReturnsEl?.checked) params.set("show_returns", "1");
+      if (modeSelect?.value) params.set("analysis_mode", modeSelect.value);
+
+      try {
+        const res = await fetch(`/api/correlation/preview?${params}`);
+        if (!res.ok) throw new Error("Vorschau nicht verfügbar");
+        const data = await res.json();
+        if (previewCard) previewCard.hidden = false;
+        TSLabCharts.renderPairChart("corrPreviewChart", data);
+        if (trendNote) {
+          trendNote.textContent = `${data.series_a.trend_note} · ${data.series_b.trend_note}`;
+        }
+        const returnsHint = document.getElementById("corrReturnsHint");
+        if (returnsHint) {
+          returnsHint.textContent = data.returns_recommended
+            ? "Optional: kontinuierliche Renditen für Kursindizes."
+            : "Renditen nur per Checkbox — für diese Paarung kein Standard.";
+        }
+        if (returnsChart) {
+          const hasReturns = !!(data.returns_a?.dates?.length);
+          returnsChart.hidden = !hasReturns;
+          if (hasReturns) TSLabCharts.renderReturnsPairChart("corrReturnsChart", data);
+        }
+      } catch {
+        if (previewCard) previewCard.hidden = true;
+      }
     }
 
     function renderOverlap(data) {
@@ -206,6 +252,11 @@ const TSLab = (() => {
 
     selA?.addEventListener("change", update);
     selB?.addEventListener("change", update);
+    showReturnsEl?.addEventListener("change", refreshPreview);
+    modeSelect?.addEventListener("change", refreshPreview);
+    document.getElementById("themeToggle")?.addEventListener("click", () => {
+      setTimeout(refreshPreview, 50);
+    });
     update();
 
     form?.addEventListener("submit", async (e) => {

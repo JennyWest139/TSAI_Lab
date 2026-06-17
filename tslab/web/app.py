@@ -57,6 +57,17 @@ def create_app(*, use_mock: bool = False) -> Flask:
             series=backend.list_series(),
         )
 
+    @app.get("/series/<slug>")
+    def series_detail_page(slug: str):
+        s = backend.series_by_slug(slug)
+        if s is None:
+            return render_template("404.html", page="series", message="Zeitreihe nicht gefunden"), 404
+        return render_template(
+            "series_detail.html",
+            page="series",
+            series=s,
+        )
+
     @app.get("/correlation")
     def correlation_page():
         return render_template(
@@ -121,6 +132,37 @@ def create_app(*, use_mock: bool = False) -> Flask:
     @app.get("/api/series/<slug>/dates")
     def api_series_dates(slug: str):
         return jsonify({"slug": slug, "dates": backend.series_dates(slug)})
+
+    @app.get("/api/series/<slug>/chart")
+    def api_series_chart(slug: str):
+        try:
+            include_returns = request.args.get("show_returns", "0") in ("1", "true", "yes")
+            data = backend.series_chart_data(
+                slug,
+                start=request.args.get("start") or None,
+                end=request.args.get("end") or None,
+                include_returns=include_returns,
+                analysis_mode=request.args.get("analysis_mode") or None,
+            )
+            return jsonify(data)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+    @app.get("/api/correlation/preview")
+    def api_correlation_preview():
+        try:
+            include_returns = request.args.get("show_returns", "0") in ("1", "true", "yes")
+            data = backend.correlation_preview(
+                request.args.get("a", ""),
+                request.args.get("b", ""),
+                start=request.args.get("start") or None,
+                end=request.args.get("end") or None,
+                include_returns=include_returns,
+                analysis_mode=request.args.get("analysis_mode") or None,
+            )
+            return jsonify(data)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
 
     @app.get("/api/overlap")
     def api_overlap():

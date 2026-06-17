@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}{{ series.label_de }}{% endblock %}
+{% block page_title %}{{ series.label_de }}{% endblock %}
+{% block page_subtitle %}Originalwerte und Trendkomponente · {{ series.slug }}{% endblock %}
+
+{% block head %}
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+{% endblock %}
+
+{% block content %}
+<div class="grid two-col">
+  <section class="card">
+    <h2>Metadaten</h2>
+    <dl class="meta-dl">
+      <dt>Slug</dt><dd class="mono">{{ series.slug }}</dd>
+      <dt>Zeitraum</dt><dd>{{ series.first_date }} → {{ series.last_date }}</dd>
+      <dt>Beobachtungen</dt><dd>{{ series.observation_count }}</dd>
+      <dt>Rhythmus</dt><dd>{{ series.frequency_label }}</dd>
+      <dt>Quelle</dt><dd>{{ series.source_file or '—' }}</dd>
+    </dl>
+    <p class="hint"><a href="{{ url_for('series_page') }}">← Alle Zeitreihen</a></p>
+  </section>
+
+  <section class="card">
+    <h2>Anzeige</h2>
+    <label class="checkbox-row">
+      <input type="checkbox" id="showReturns">
+      Kontinuierliche Renditen als Zusatz anzeigen
+    </label>
+    <p class="hint" id="returnsHint">Standard: Originalwerte + Trend. Renditen nur optional.</p>
+  </section>
+</div>
+
+<section class="card chart-card">
+  <h2>Interaktive Grafik</h2>
+  <p class="hint" id="chartHint">Mit der Maus über Punkte fahren — Datum und Wert werden angezeigt.</p>
+  <div id="seriesChart" class="plotly-chart"></div>
+  <p class="hint chart-footnote" id="trendNote"></p>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/charts.js') }}"></script>
+<script>
+  TSLabCharts.initSeriesDetail({{ series.slug | tojson }});
+</script>
+{% endblock %}

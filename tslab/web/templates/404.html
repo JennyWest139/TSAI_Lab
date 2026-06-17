@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Nicht gefunden{% endblock %}
+{% block page_title %}Nicht gefunden{% endblock %}
+{% block content %}
+<section class="card">
+  <p>{{ message or 'Die angeforderte Seite existiert nicht.' }}</p>
+  <p><a href="{{ url_for('dashboard') }}">Zur Übersicht</a></p>
+</section>
+{% endblock %}

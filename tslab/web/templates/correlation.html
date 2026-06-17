@@ -3,6 +3,10 @@
 {% block page_title %}Kreuzkorrelation{% endblock %}
 {% block page_subtitle %}Zwei Reihen wählen, Überlappung prüfen, Fenster und Rhythmus anpassen{% endblock %}
 
+{% block head %}
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+{% endblock %}
+
 {% block content %}
 <form id="correlationForm" class="analysis-form">
   <div class="grid two-col">
@@ -61,6 +65,19 @@
     </section>
   </div>
 
+  <section class="card chart-card" id="corrPreviewCard" hidden>
+    <h2>2b · Zeitreihen-Vorschau</h2>
+    <p class="hint">Originalwerte und Trendkomponenten im gewählten Fenster — vor der Korrelationsberechnung.</p>
+    <label class="checkbox-row">
+      <input type="checkbox" id="corrShowReturns">
+      Kontinuierliche Renditen als Zusatz anzeigen
+    </label>
+    <p class="hint" id="corrReturnsHint">Standard: Originalwerte und Trends beider Reihen.</p>
+    <div id="corrPreviewChart" class="plotly-chart"></div>
+    <div id="corrReturnsChart" class="plotly-chart" hidden></div>
+    <p class="hint chart-footnote" id="corrTrendNote"></p>
+  </section>
+
   <section class="card">
     <h2>3 · Analysefenster & Rhythmus</h2>
     <div class="grid three-col">
@@ -101,5 +118,6 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="{{ url_for('static', filename='js/charts.js') }}"></script>
 <script>TSLab.initCorrelation();</script>
 {% endblock %}

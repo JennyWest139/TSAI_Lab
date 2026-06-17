@@ -1,12 +1,12 @@
 {% extends "base.html" %}
 {% block title %}Zeitreihen{% endblock %}
 {% block page_title %}Verfügbare Zeitreihen{% endblock %}
-{% block page_subtitle %}Alle Reihen in der Datenbank{% endblock %}
+{% block page_subtitle %}Klicken Sie auf eine Reihe für die interaktive Grafik{% endblock %}
 
 {% block content %}
 <section class="card">
   <div class="table-wrap">
-    <table class="data-table">
+    <table class="data-table table-clickable">
       <thead>
         <tr>
           <th>Name</th>
@@ -20,9 +20,13 @@
       </thead>
       <tbody>
         {% for s in series %}
-        <tr>
-          <td><strong>{{ s.label_de }}</strong></td>
-          <td class="mono">{{ s.slug }}</td>
+        <tr class="row-link" tabindex="0">
+          <td>
+            <a class="series-link" href="{{ url_for('series_detail_page', slug=s.slug) }}">
+              <strong>{{ s.label_de }}</strong>
+            </a>
+          </td>
+          <td class="mono"><a class="series-link muted-link" href="{{ url_for('series_detail_page', slug=s.slug) }}">{{ s.slug }}</a></td>
           <td>{{ s.first_date }}</td>
           <td>{{ s.last_date }}</td>
           <td>{{ s.observation_count }}</td>

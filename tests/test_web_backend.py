@@ -99,6 +99,28 @@ class WebBackendMockTests(unittest.TestCase):
         self.assertEqual(res.status_code, 200)
         self.assertIn(b"Backend:", res.data)
 
+    def test_series_detail_page(self) -> None:
+        res = self.client.get("/series/pdax")
+        self.assertEqual(res.status_code, 200)
+        self.assertIn(b"seriesChart", res.data)
+        self.assertIn(b"plotly", res.data)
+
+    def test_api_series_chart(self) -> None:
+        res = self.client.get("/api/series/pdax/chart")
+        self.assertEqual(res.status_code, 200)
+        data = res.get_json()
+        self.assertEqual(data["slug"], "pdax")
+        self.assertGreater(len(data["dates"]), 0)
+
+    def test_api_correlation_preview(self) -> None:
+        res = self.client.get(
+            "/api/correlation/preview?a=pdax&b=dax&start=1987-12-01&end=2006-07-01"
+        )
+        self.assertEqual(res.status_code, 200)
+        data = res.get_json()
+        self.assertIn("series_a", data)
+        self.assertIn("series_b", data)
+
 
 if __name__ == "__main__":
     unittest.main()

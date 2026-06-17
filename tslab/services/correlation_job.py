@@ -11,7 +11,11 @@ from tslab.config_loader import resolve_output_dir
 from tslab.db.models import CorrelationHistory
 from tslab.plots.correlation_plots import plot_aligned_series, plot_cross_correlation_bars
 from tslab.services.analysis_mode import AnalysisModeConfig
-from tslab.services.correlation import CorrelationResult, run_correlation
+from tslab.services.correlation import (
+    CorrelationResult,
+    load_pair_for_correlation,
+    run_correlation,
+)
 
 
 @dataclass(frozen=True)
@@ -99,10 +103,17 @@ def run_correlation_job(
 
     result.table.to_csv(out / "lag_correlations.csv", index=False, encoding="utf-8-sig")
     plot_cross_correlation_bars(result, out / "cross_correlation.png")
+    levels_a, levels_b, _ = load_pair_for_correlation(
+        session,
+        series_a,
+        series_b,
+        start_date=start_date,
+        end_date=end_date,
+    )
     plot_aligned_series(
         result,
-        result.series_a_values,
-        result.series_b_values,
+        levels_a,
+        levels_b,
         out / "aligned_series.png",
     )
     _write_summary(result, mode_config, max_lag, out / "summary.txt")

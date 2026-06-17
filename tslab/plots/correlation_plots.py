@@ -107,7 +107,7 @@ def plot_aligned_series(result: CorrelationResult, a: pd.Series, b: pd.Series, p
     ax_right.tick_params(axis="y", labelcolor=color_b)
 
     ax_left.set_title(
-        f"Zeitreihen (kont. Renditen, {result.analysis_mode}) – {result.study.analysis_label}"
+        f"Originalwerte – {result.study.analysis_label}"
     )
     ax_left.set_xlabel("Zeit (Monatsdaten)")
 
@@ -137,8 +137,7 @@ def plot_aligned_series(result: CorrelationResult, a: pd.Series, b: pd.Series, p
     fig.text(
         0.5,
         0.02,
-        f"Datengrundlage: {result.data_basis}\n"
-        "Quelle: observations (Upload-DB), nur Lesen, kein Schreiben\n"
+        "Quelle: observations (Upload-DB), nur Lesen\n"
         + trend_note,
         ha="center",
         fontsize=7,

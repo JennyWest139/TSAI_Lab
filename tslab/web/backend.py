@@ -32,11 +32,13 @@ from tslab.services.timeseries_store import (
     get_series_by_slug,
     import_series_from_csv,
     list_series,
+    load_series_full_pandas,
 )
 from tslab.web import mock_data as mock
 from tslab.web.csv_preview import preview_upload_bytes
 from tslab.web.mock_data import FREQUENCY_OPTIONS, SeriesMeta, suggest_run_name
 from tslab.web.output_browser import browse_url_for, output_root, relative_output_path
+from tslab.web.series_chart import build_pair_chart_payload, build_series_chart_payload
 
 
 @dataclass(frozen=True)
@@ -444,6 +446,78 @@ class WebBackend:
             )
         return views
 
+    def _load_series_pandas(self, slug: str):
+        if self.uses_mock:
+            return mock.mock_series_pandas(slug)
+        with get_session() as session:
+            return load_series_full_pandas(session, slug)
+
+    def series_chart_data(
+        self,
+        slug: str,
+        *,
+        start: str | None = None,
+        end: str | None = None,
+        include_returns: bool = False,
+        analysis_mode: str | None = None,
+    ) -> dict:
+        meta = self.series_by_slug(slug)
+        if meta is None:
+            raise ValueError(f"Zeitreihe '{slug}' wurde nicht gefunden.")
+        series = self._load_series_pandas(slug)
+        if start or end:
+            dates = self.series_dates(slug)
+            _validate_date_range(dates, start, end)
+        return build_series_chart_payload(
+            series,
+            slug=slug,
+            label=meta.label_de,
+            start=start,
+            end=end,
+            include_returns=include_returns,
+            analysis_mode=analysis_mode,
+        )
+
+    def correlation_preview(
+        self,
+        slug_a: str,
+        slug_b: str,
+        *,
+        start: str | None = None,
+        end: str | None = None,
+        include_returns: bool = False,
+        analysis_mode: str | None = None,
+    ) -> dict:
+        if not slug_a or not slug_b or slug_a == slug_b:
+            raise ValueError("Bitte zwei verschiedene Zeitreihen waehlen.")
+        meta_a = self.series_by_slug(slug_a)
+        meta_b = self.series_by_slug(slug_b)
+        if meta_a is None or meta_b is None:
+            raise ValueError("Eine oder beide Zeitreihen wurden nicht gefunden.")
+
+        overlap_dates = self.overlap_dates(slug_a, slug_b)
+        if not overlap_dates:
+            raise ValueError("Keine gemeinsame Datenbasis fuer diese Paarung.")
+
+        eff_start = start or overlap_dates[0]
+        eff_end = end or overlap_dates[-1]
+        _validate_date_range(overlap_dates, eff_start, eff_end)
+
+        series_a = self._load_series_pandas(slug_a)
+        series_b = self._load_series_pandas(slug_b)
+        return build_pair_chart_payload(
+            series_a,
+            series_b,
+            slug_a=slug_a,
+            slug_b=slug_b,
+            label_a=meta_a.label_de,
+            label_b=meta_b.label_de,
+            start=eff_start,
+            end=eff_end,
+            include_returns=include_returns,
+            analysis_mode=analysis_mode,
+        )
+
     def run_correlation(self, payload: dict) -> dict:
         if self.uses_mock:
             return {
@@ -485,8 +559,6 @@ class WebBackend:
             ts_b = get_series_by_slug(session, series_b)
             if ts_a is None or ts_b is None:
                 raise ValueError("Eine oder beide Zeitreihen wurden nicht gefunden.")
-
-            from tslab.services.timeseries_store import load_series_full_pandas
 
             overlap_dates = self.overlap_dates(series_a, series_b)
             _validate_date_range(overlap_dates, start_date, end_date)
