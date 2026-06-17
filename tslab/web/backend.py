@@ -35,7 +35,7 @@ from tslab.services.timeseries_store import (
     load_series_full_pandas,
 )
 from tslab.web import mock_data as mock
-from tslab.web.csv_preview import preview_upload_bytes
+from tslab.web.csv_preview import date_detection_for_column, load_upload_dataframe, preview_upload_bytes
 from tslab.web.mock_data import FREQUENCY_OPTIONS, SeriesMeta, suggest_run_name
 from tslab.web.output_browser import browse_url_for, output_root, relative_output_path
 from tslab.web.series_chart import build_pair_chart_payload, build_series_chart_payload
@@ -264,6 +264,25 @@ class WebBackend:
     def preview_upload(self, data: bytes, filename: str) -> dict:
         return preview_upload_bytes(data, filename)
 
+    def validate_upload_dates(
+        self,
+        data: bytes,
+        filename: str,
+        *,
+        date_column: str,
+        date_parse_mode: str = "auto",
+        date_format: str | None = None,
+        dayfirst: bool | None = None,
+    ) -> dict:
+        df, _, _ = load_upload_dataframe(data, filename)
+        return date_detection_for_column(
+            df,
+            date_column,
+            mode=date_parse_mode,
+            strftime_format=date_format or None,
+            dayfirst=dayfirst,
+        )
+
     def import_upload(
         self,
         data: bytes,
@@ -272,8 +291,11 @@ class WebBackend:
         date_column: str,
         value_column: str,
         series_name: str | None = None,
-        date_format: str = "%d.%m.%Y",
+        date_parse_mode: str = "auto",
+        date_format: str | None = None,
+        dayfirst: bool | None = None,
         sep: str = ";",
+        encoding: str = "utf-8-sig",
     ) -> dict:
         if self.uses_mock:
             return mock.mock_upload_result(filename)
@@ -292,8 +314,11 @@ class WebBackend:
                     csv_path=tmp_path,
                     date_column=date_column,
                     value_column=value_column,
-                    date_format=date_format,
+                    date_parse_mode=date_parse_mode,
+                    date_format=date_format or None,
+                    dayfirst=dayfirst,
                     sep=sep,
+                    encoding=encoding,
                 )
                 meta = _ts_to_meta(session, ts)
         finally:

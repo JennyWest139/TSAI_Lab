@@ -13,6 +13,7 @@ from PIL import Image
 
 from tslab.services.correlation import CorrelationResult, LAG_DEFINITION
 from tslab.services.decomposition import extract_trend_component
+from tslab.plots.text_util import wrap_plot_text
 
 plt.style.use("seaborn-v0_8-whitegrid")
 _MIN_PNG_BYTES = 500
@@ -38,9 +39,13 @@ def plot_cross_correlation_bars(result: CorrelationResult, path: Path) -> Path:
     ax.set_xlabel("Lag h")
     ax.set_ylabel("Pearson-Korrelation")
     ax.set_title(
-        f"Kreuzkorrelation: {result.series_a} vs {result.series_b} "
-        f"[{result.analysis_mode}]\n"
-        f"Fenster: {result.study.analysis_label} ({result.aligned_observations} gemeinsame Monate)"
+        wrap_plot_text(
+            f"Kreuzkorrelation: {result.series_a} vs {result.series_b} "
+            f"[{result.analysis_mode}]\n"
+            f"Fenster: {result.study.analysis_label} ({result.aligned_observations} gemeinsame Monate)",
+            width=58,
+        ),
+        fontsize=10,
     )
     fig.text(0.5, 0.01, LAG_DEFINITION, ha="center", fontsize=7, style="italic")
     fig.subplots_adjust(bottom=0.14)
@@ -107,7 +112,7 @@ def plot_aligned_series(result: CorrelationResult, a: pd.Series, b: pd.Series, p
     ax_right.tick_params(axis="y", labelcolor=color_b)
 
     ax_left.set_title(
-        f"Originalwerte – {result.study.analysis_label}"
+        wrap_plot_text(f"Originalwerte – {result.study.analysis_label}", width=52)
     )
     ax_left.set_xlabel("Zeit (Monatsdaten)")
 
@@ -137,8 +142,10 @@ def plot_aligned_series(result: CorrelationResult, a: pd.Series, b: pd.Series, p
     fig.text(
         0.5,
         0.02,
-        "Quelle: observations (Upload-DB), nur Lesen\n"
-        + trend_note,
+        wrap_plot_text(
+            "Quelle: observations (Upload-DB), nur Lesen\n" + trend_note,
+            width=95,
+        ),
         ha="center",
         fontsize=7,
         style="italic",

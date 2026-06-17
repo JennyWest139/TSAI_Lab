@@ -2,6 +2,24 @@
  * Interaktive Plotly-Grafiken (Originalwerte + Trend, optional Renditen).
  */
 const TSLabCharts = (() => {
+  function wrapPlotlyText(text, maxLen = 42) {
+    if (!text) return "";
+    const words = String(text).split(/\s+/);
+    const lines = [];
+    let line = "";
+    for (const word of words) {
+      const next = line ? `${line} ${word}` : word;
+      if (next.length > maxLen && line) {
+        lines.push(line);
+        line = word;
+      } else {
+        line = next;
+      }
+    }
+    if (line) lines.push(line);
+    return lines.join("<br>");
+  }
+
   function plotTheme() {
     const dark = document.documentElement.getAttribute("data-theme") === "dark";
     return {
@@ -15,6 +33,12 @@ const TSLabCharts = (() => {
 
   function hoverTemplate(label, valueLabel) {
     return `<b>%{x|%b %Y}</b><br>${label}: %{y:.4f}<extra></extra>`;
+  }
+
+  function legendY(traceCount) {
+    if (traceCount <= 2) return 1.1;
+    if (traceCount <= 4) return 1.16;
+    return 1.22;
   }
 
   function renderSeriesChart(containerId, data) {
@@ -54,18 +78,18 @@ const TSLabCharts = (() => {
 
     const layout = {
       ...plotTheme(),
-      margin: { l: 56, r: data.returns ? 56 : 24, t: 32, b: 48 },
-      title: { text: data.label, font: { size: 15 } },
+      margin: { l: 56, r: data.returns ? 56 : 24, t: 48, b: 48 },
+      title: { text: wrapPlotlyText(data.label, 50), font: { size: 15 } },
       xaxis: { ...plotTheme().xaxis, title: "Datum" },
-      yaxis: { ...plotTheme().yaxis, title: "Originalwert" },
-      legend: { orientation: "h", y: 1.12, x: 0 },
+      yaxis: { ...plotTheme().yaxis, title: wrapPlotlyText("Originalwert", 24) },
+      legend: { orientation: "h", y: legendY(traces.length), x: 0 },
       hovermode: "x unified",
     };
 
     if (data.returns?.dates?.length) {
       layout.yaxis2 = {
         ...plotTheme().yaxis,
-        title: "Renditen",
+        title: wrapPlotlyText("Renditen", 24),
         overlaying: "y",
         side: "right",
         showgrid: false,
@@ -85,7 +109,7 @@ const TSLabCharts = (() => {
       {
         x: a.dates,
         y: a.values,
-        name: `${a.label} (Original)`,
+        name: wrapPlotlyText(`${a.label} (Original)`, 36),
         mode: "lines",
         line: { color: "#1f6feb", width: 1.8 },
         yaxis: "y",
@@ -94,7 +118,7 @@ const TSLabCharts = (() => {
       {
         x: a.dates,
         y: a.trend,
-        name: `${a.label} (Trend)`,
+        name: wrapPlotlyText(`${a.label} (Trend)`, 36),
         mode: "lines",
         line: { color: "#8db4e2", width: 1.6, dash: "dash" },
         yaxis: "y",
@@ -103,7 +127,7 @@ const TSLabCharts = (() => {
       {
         x: b.dates,
         y: b.values,
-        name: `${b.label} (Original)`,
+        name: wrapPlotlyText(`${b.label} (Original)`, 36),
         mode: "lines",
         line: { color: "#c55a11", width: 1.8 },
         yaxis: "y2",
@@ -112,7 +136,7 @@ const TSLabCharts = (() => {
       {
         x: b.dates,
         y: b.trend,
-        name: `${b.label} (Trend)`,
+        name: wrapPlotlyText(`${b.label} (Trend)`, 36),
         mode: "lines",
         line: { color: "#f0a88a", width: 1.6, dash: "dash" },
         yaxis: "y2",
@@ -122,28 +146,31 @@ const TSLabCharts = (() => {
 
     const layout = {
       ...plotTheme(),
-      margin: { l: 60, r: 60, t: 40, b: 56 },
+      margin: { l: 60, r: 60, t: 56, b: 56 },
       title: {
-        text: `Zeitreihen-Vorschau · ${data.window?.start || ""} … ${data.window?.end || ""}`,
+        text: wrapPlotlyText(
+          `Zeitreihen-Vorschau · ${data.window?.start || ""} … ${data.window?.end || ""}`,
+          52
+        ),
         font: { size: 14 },
       },
       xaxis: { ...plotTheme().xaxis, title: "Datum" },
       yaxis: {
         ...plotTheme().yaxis,
-        title: a.label,
+        title: wrapPlotlyText(a.label, 22),
         titlefont: { color: "#1f6feb" },
         tickfont: { color: "#1f6feb" },
       },
       yaxis2: {
         ...plotTheme().yaxis,
-        title: b.label,
+        title: wrapPlotlyText(b.label, 22),
         overlaying: "y",
         side: "right",
         titlefont: { color: "#c55a11" },
         tickfont: { color: "#c55a11" },
         showgrid: false,
       },
-      legend: { orientation: "h", y: 1.18, x: 0, font: { size: 10 } },
+      legend: { orientation: "h", y: legendY(traces.length), x: 0, font: { size: 10 } },
       hovermode: "x unified",
     };
 
@@ -158,7 +185,7 @@ const TSLabCharts = (() => {
       {
         x: data.returns_a.dates,
         y: data.returns_a.values,
-        name: `${data.series_a.label} · ${data.returns_a.label}`,
+        name: wrapPlotlyText(`${data.series_a.label} · ${data.returns_a.label}`, 40),
         mode: "lines",
         line: { color: "#10b981", width: 1.5 },
         hovertemplate: hoverTemplate(data.series_a.label, "Rendite"),
@@ -168,7 +195,7 @@ const TSLabCharts = (() => {
       traces.push({
         x: data.returns_b.dates,
         y: data.returns_b.values,
-        name: `${data.series_b.label} · ${data.returns_b.label}`,
+        name: wrapPlotlyText(`${data.series_b.label} · ${data.returns_b.label}`, 40),
         mode: "lines",
         line: { color: "#059669", width: 1.5, dash: "dot" },
         hovertemplate: hoverTemplate(data.series_b.label, "Rendite"),
@@ -177,11 +204,11 @@ const TSLabCharts = (() => {
 
     const layout = {
       ...plotTheme(),
-      margin: { l: 56, r: 24, t: 28, b: 48 },
-      title: { text: "Kontinuierliche Renditen (Zusatz)", font: { size: 13 } },
+      margin: { l: 56, r: 24, t: 40, b: 48 },
+      title: { text: wrapPlotlyText("Kontinuierliche Renditen (Zusatz)", 48), font: { size: 13 } },
       xaxis: { ...plotTheme().xaxis, title: "Datum" },
       yaxis: { ...plotTheme().yaxis, title: "Rendite" },
-      legend: { orientation: "h", y: 1.15, x: 0 },
+      legend: { orientation: "h", y: legendY(traces.length), x: 0 },
       hovermode: "x unified",
     };
 
@@ -226,6 +253,7 @@ const TSLabCharts = (() => {
   }
 
   return {
+    wrapPlotlyText,
     renderSeriesChart,
     renderPairChart,
     renderReturnsPairChart,

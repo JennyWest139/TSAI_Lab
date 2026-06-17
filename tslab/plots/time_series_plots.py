@@ -19,6 +19,7 @@ from statsmodels.tsa.seasonal import seasonal_decompose
 from statsmodels.tsa.stattools import pacf as sm_pacf
 
 from tslab.plots.series_display import SeriesDisplay
+from tslab.plots.text_util import wrap_axis_label, wrap_plot_text
 
 plt.style.use("seaborn-v0_8-whitegrid")
 
@@ -60,7 +61,7 @@ def _caption(
     fig.text(
         0.5,
         0.02,
-        display.footnote(),
+        wrap_plot_text(display.footnote(), width=88),
         ha="center",
         va="bottom",
         fontsize=8,
@@ -96,26 +97,44 @@ def _safe_lags(y: pd.Series, lags: int = 40) -> int:
 def plot_series(y: pd.Series, path: Path, display: SeriesDisplay) -> Path:
     fig, ax = plt.subplots(figsize=(10, 4.5))
     y.plot(ax=ax, color="#1f4e79", lw=1.2)
-    ax.set_title(display.title("Zeitreihe"))
+    ax.set_title(wrap_plot_text(display.title("Zeitreihe"), width=48))
     ax.set_xlabel(_X_TIME)
-    ax.set_ylabel(display.value_axis)
+    ax.set_ylabel(wrap_axis_label(display.value_axis))
     _caption(fig, display)
     return _save(fig, path)
 
 
 def plot_histogram(y: pd.Series, path: Path, display: SeriesDisplay) -> Path:
     fig, ax = plt.subplots(figsize=(9, 4.5))
-    values = y.dropna().values
-    ax.hist(
+    values = y.dropna().values.astype(float)
+    n_bins = 30
+    counts, bin_edges, _ = ax.hist(
         values,
-        bins=30,
+        bins=n_bins,
         color="#2e75b6",
         edgecolor="#1a4a73",
         linewidth=0.4,
-        alpha=0.9,
+        alpha=0.85,
+        density=False,
+        label="Beobachtungen",
     )
-    ax.set_title(display.title("Histogramm"))
-    ax.set_xlabel(display.value_axis)
+    if len(values) >= 2:
+        mu = float(np.mean(values))
+        sigma = float(np.std(values, ddof=1))
+        if sigma > 0:
+            bin_width = float(bin_edges[1] - bin_edges[0])
+            x = np.linspace(values.min(), values.max(), 200)
+            pdf = stats.norm.pdf(x, mu, sigma)
+            ax.plot(
+                x,
+                pdf * len(values) * bin_width,
+                color="#c55a11",
+                lw=2.0,
+                label=f"Normalverteilung (mu={mu:.4g}, sigma={sigma:.4g})",
+            )
+            ax.legend(loc="upper right", fontsize=8, framealpha=0.9)
+    ax.set_title(wrap_plot_text(display.title("Histogramm"), width=48))
+    ax.set_xlabel(wrap_axis_label(display.value_axis))
     ax.set_ylabel("Haeufigkeit")
     _caption(fig, display)
     return _save(fig, path)

@@ -98,6 +98,12 @@ class WebBackendMockTests(unittest.TestCase):
         res = self.client.get("/")
         self.assertEqual(res.status_code, 200)
         self.assertIn(b"Backend:", res.data)
+        self.assertIn(b"btn-help", res.data)
+
+    def test_manual_pdf_available(self) -> None:
+        res = self.client.get("/static/docs/tslab_benutzerhandbuch.pdf")
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.mimetype, "application/pdf")
 
     def test_series_detail_page(self) -> None:
         res = self.client.get("/series/pdax")

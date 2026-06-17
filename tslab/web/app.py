@@ -233,11 +233,44 @@ def create_app(*, use_mock: bool = False) -> Flask:
         except ValueError as exc:
             return jsonify({"ok": False, "message": str(exc)}), 400
 
+    @app.post("/api/upload/validate-dates")
+    def api_upload_validate_dates():
+        f = request.files.get("file")
+        if f is None or not f.filename:
+            return jsonify({"ok": False, "message": "Keine Datei gewaehlt"}), 400
+        date_column = request.form.get("date_column", "")
+        if not date_column:
+            return jsonify({"ok": False, "message": "date_column fehlt"}), 400
+        dayfirst_raw = request.form.get("dayfirst")
+        dayfirst = None
+        if dayfirst_raw in ("1", "true", "yes"):
+            dayfirst = True
+        elif dayfirst_raw in ("0", "false", "no"):
+            dayfirst = False
+        try:
+            det = backend.validate_upload_dates(
+                f.read(),
+                f.filename,
+                date_column=date_column,
+                date_parse_mode=request.form.get("date_parse_mode", "auto"),
+                date_format=request.form.get("date_format") or None,
+                dayfirst=dayfirst,
+            )
+            return jsonify({"ok": True, "date_detection": det})
+        except ValueError as exc:
+            return jsonify({"ok": False, "message": str(exc)}), 400
+
     @app.post("/api/upload")
     def api_upload():
         f = request.files.get("file")
         if f is None or not f.filename:
             return jsonify({"ok": False, "message": "Keine Datei gewaehlt"}), 400
+        dayfirst_raw = request.form.get("dayfirst")
+        dayfirst = None
+        if dayfirst_raw in ("1", "true", "yes"):
+            dayfirst = True
+        elif dayfirst_raw in ("0", "false", "no"):
+            dayfirst = False
         try:
             result = backend.import_upload(
                 f.read(),
@@ -245,8 +278,11 @@ def create_app(*, use_mock: bool = False) -> Flask:
                 date_column=request.form.get("date_column", ""),
                 value_column=request.form.get("value_column", ""),
                 series_name=request.form.get("series_name") or None,
-                date_format=request.form.get("date_format", "%d.%m.%Y"),
+                date_parse_mode=request.form.get("date_parse_mode", "auto"),
+                date_format=request.form.get("date_format") or None,
+                dayfirst=dayfirst,
                 sep=request.form.get("sep", ";"),
+                encoding=request.form.get("encoding", "utf-8-sig"),
             )
             return jsonify(result)
         except (ValueError, KeyError) as exc:

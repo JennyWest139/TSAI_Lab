@@ -383,6 +383,14 @@ const TSLab = (() => {
     const preview = document.getElementById("filePreview");
     const fileMeta = document.getElementById("fileMeta");
     const dateCol = document.getElementById("dateColumn");
+    const dateMode = document.getElementById("dateParseMode");
+    const dateFormatInput = document.getElementById("uploadDateFormat");
+    const encodingInput = document.getElementById("uploadEncoding");
+    const dateDetectMeta = document.getElementById("dateDetectMeta");
+    const dateOrderHint = document.getElementById("dateOrderHint");
+    const dateSampleWrap = document.getElementById("dateSampleWrap");
+    const dateSampleBody = document.getElementById("dateSampleBody");
+    const dateDetectError = document.getElementById("dateDetectError");
     const valueCol = document.getElementById("valueColumn");
     const seriesName = document.getElementById("seriesName");
     const freq = document.getElementById("uploadFrequency");
@@ -390,6 +398,80 @@ const TSLab = (() => {
     const form = document.getElementById("uploadForm");
     const result = document.getElementById("uploadResult");
     let pendingFile = null;
+    let previewCache = null;
+
+    function fillDateModes(modes, selected) {
+      if (!dateMode) return;
+      dateMode.innerHTML = "";
+      (modes || []).forEach((m) => {
+        const o = document.createElement("option");
+        o.value = m.id;
+        o.textContent = m.example ? `${m.label} · z. B. ${m.example}` : m.label;
+        o.dataset.order = m.order || "";
+        dateMode.appendChild(o);
+      });
+      if (selected) dateMode.value = selected;
+    }
+
+    function renderDateDetection(det) {
+      if (!det) {
+        if (dateDetectMeta) dateDetectMeta.innerHTML = "";
+        if (dateSampleWrap) dateSampleWrap.hidden = true;
+        return;
+      }
+      if (dateOrderHint) {
+        dateOrderHint.textContent = `Erkannt: ${det.label_de} — ${det.order_de}`;
+      }
+      if (dateDetectMeta) {
+        const pct = Math.round((det.parse_rate || 0) * 100);
+        dateDetectMeta.innerHTML = `
+          <dt>Lesbarkeit</dt><dd>${det.parsed_count} / ${det.total_count} (${pct}%)</dd>
+          <dt>Reihenfolge</dt><dd>${det.order_de}</dd>
+          <dt>Modus</dt><dd class="mono">${det.mode}</dd>
+        `;
+      }
+      if (dateFormatInput) {
+        dateFormatInput.value = det.strftime_format || "";
+      }
+      if (dateMode && det.mode && dateMode.querySelector(`option[value="${det.mode}"]`)) {
+        dateMode.value = det.mode;
+      }
+      if (dateSampleBody && dateSampleWrap) {
+        dateSampleBody.innerHTML = "";
+        (det.samples || []).forEach((row) => {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `<td class="mono">${row.raw}</td><td class="mono">${row.parsed}</td>`;
+          dateSampleBody.appendChild(tr);
+        });
+        dateSampleWrap.hidden = !(det.samples || []).length;
+      }
+      if (dateDetectError) {
+        const ok = (det.parse_rate || 0) >= 0.5;
+        dateDetectError.hidden = ok;
+        dateDetectError.textContent = ok
+          ? ""
+          : "Weniger als 50% der Datumswerte lesbar — bitte anderes Format wählen.";
+      }
+    }
+
+    async function refreshDateDetection() {
+      if (!pendingFile || !dateCol?.value) return;
+      const fd = new FormData();
+      fd.append("file", pendingFile);
+      fd.append("date_column", dateCol.value);
+      fd.append("date_parse_mode", dateMode?.value || "auto");
+      if (dateFormatInput?.value) fd.append("date_format", dateFormatInput.value);
+      const res = await fetch("/api/upload/validate-dates", { method: "POST", body: fd });
+      const data = await res.json();
+      if (!data.ok) {
+        if (dateDetectError) {
+          dateDetectError.hidden = false;
+          dateDetectError.textContent = data.message || "Datumserkennung fehlgeschlagen";
+        }
+        return;
+      }
+      renderDateDetection(data.date_detection);
+    }
 
     drop?.addEventListener("click", () => input?.click());
     drop?.addEventListener("dragover", (e) => {
@@ -406,6 +488,15 @@ const TSLab = (() => {
       if (input.files?.length) handleFile(input.files[0]);
     });
 
+    dateCol?.addEventListener("change", () => {
+      if (previewCache?.date_columns_info?.[dateCol.value]) {
+        renderDateDetection(previewCache.date_columns_info[dateCol.value]);
+        if (dateMode) dateMode.value = previewCache.date_columns_info[dateCol.value].mode || "auto";
+      }
+      refreshDateDetection();
+    });
+    dateMode?.addEventListener("change", refreshDateDetection);
+
     async function handleFile(file) {
       pendingFile = file;
       const fd = new FormData();
@@ -416,10 +507,13 @@ const TSLab = (() => {
         toast(data.message || "Vorschau fehlgeschlagen");
         return;
       }
+      previewCache = data;
       if (wizard) wizard.hidden = false;
       if (preview) preview.value = data.preview_text || "";
       if (fileMeta) fileMeta.textContent = `${data.filename} · ${data.line_count} Zeilen`;
       if (sepInput) sepInput.value = data.sep || ";";
+      if (encodingInput) encodingInput.value = data.encoding || "utf-8-sig";
+      fillDateModes(data.date_parse_modes, data.date_detection?.mode || "auto");
       fillDateSelect(dateCol, data.columns, data.suggested_date_column);
       fillDateSelect(valueCol, data.value_columns || data.columns, data.suggested_value_column);
       if (seriesName) seriesName.value = data.suggested_value_column || "";
@@ -433,12 +527,17 @@ const TSLab = (() => {
         });
         if (data.suggested_frequency) freq.value = data.suggested_frequency;
       }
+      renderDateDetection(data.date_detection);
     }
 
     form?.addEventListener("submit", async (e) => {
       e.preventDefault();
       if (!pendingFile) {
         toast("Bitte Datei wählen");
+        return;
+      }
+      if (dateDetectError && !dateDetectError.hidden) {
+        toast("Bitte Datumsformat korrigieren bevor Sie importieren.");
         return;
       }
       const fd = new FormData(form);

@@ -3,18 +3,22 @@
 from __future__ import annotations
 
 import io
-import re
 from pathlib import Path
 
 import pandas as pd
 
 from tslab.config_loader import load_defaults
+from tslab.services.date_parse import (
+    DATE_PARSE_MODES,
+    analyze_date_column,
+    detect_date_format,
+    parse_observation_dates,
+)
 from tslab.services.frequency_detect import detect_frequency_from_dates
 from tslab.services.ingest_werte import _parse_german_number
 from tslab.web.mock_data import FREQUENCY_OPTIONS
 
 _PREVIEW_LINES = 45
-_DATE_FORMATS = ("%d.%m.%Y", "%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y")
 
 
 def _read_raw_text(data: bytes, filename: str) -> tuple[str, str]:
@@ -35,7 +39,7 @@ def _guess_sep(text: str) -> str:
     return ","
 
 
-def _load_dataframe(data: bytes, filename: str) -> tuple[pd.DataFrame, str, str]:
+def load_upload_dataframe(data: bytes, filename: str) -> tuple[pd.DataFrame, str, str]:
     ext = Path(filename).suffix.lower()
     if ext in (".xlsx", ".xls"):
         try:
@@ -52,24 +56,17 @@ def _load_dataframe(data: bytes, filename: str) -> tuple[pd.DataFrame, str, str]
     return df, sep, encoding
 
 
-def _try_parse_dates(series: pd.Series) -> pd.Series:
-    s = series.astype(str).str.strip()
-    for fmt in _DATE_FORMATS:
-        parsed = pd.to_datetime(s, format=fmt, errors="coerce")
-        if parsed.notna().sum() >= max(3, len(s) * 0.5):
-            return parsed
-    return pd.to_datetime(s, errors="coerce", dayfirst=True)
-
-
 def _guess_date_column(df: pd.DataFrame) -> str | None:
     best_col: str | None = None
-    best_score = 0
+    best_score = 0.0
     for col in df.columns:
-        parsed = _try_parse_dates(df[col])
-        score = int(parsed.notna().sum())
-        if score > best_score:
-            best_score = score
-            best_col = str(col)
+        try:
+            det = detect_date_format(df[col])
+            if det.parse_rate > best_score:
+                best_score = det.parse_rate
+                best_col = str(col)
+        except ValueError:
+            continue
     return best_col
 
 
@@ -82,6 +79,25 @@ def _numeric_columns(df: pd.DataFrame) -> list[str]:
     return cols
 
 
+def date_detection_for_column(
+    df: pd.DataFrame,
+    date_column: str,
+    *,
+    mode: str = "auto",
+    strftime_format: str | None = None,
+    dayfirst: bool | None = None,
+) -> dict:
+    if date_column not in df.columns:
+        raise ValueError(f"Spalte {date_column!r} nicht gefunden.")
+    det = analyze_date_column(
+        df[date_column],
+        mode=mode,
+        strftime_format=strftime_format,
+        dayfirst=dayfirst,
+    )
+    return det.to_dict()
+
+
 def preview_upload_bytes(data: bytes, filename: str) -> dict:
     """Vorschau fuer Upload-UI: Texteditor + Spaltenwahl."""
     text, encoding = _read_raw_text(data, filename)
@@ -90,7 +106,7 @@ def preview_upload_bytes(data: bytes, filename: str) -> dict:
     if len(lines) > _PREVIEW_LINES:
         preview_text += f"\n… ({len(lines) - _PREVIEW_LINES} weitere Zeilen)"
 
-    df, sep, source = _load_dataframe(data, filename)
+    df, sep, source = load_upload_dataframe(data, filename)
     columns = [str(c) for c in df.columns]
     date_col = _guess_date_column(df)
     value_cols = _numeric_columns(df)
@@ -105,11 +121,24 @@ def preview_upload_bytes(data: bytes, filename: str) -> dict:
             suggested_value = value_cols[0]
 
     freq_id, freq_label = "MS", "Monatlich"
-    if date_col:
-        parsed = _try_parse_dates(df[date_col]).dropna()
-        dates = [d.date() for d in parsed.dt.to_pydatetime()]
-        if dates:
-            freq_id, freq_label = detect_frequency_from_dates(dates)
+    date_detection: dict | None = None
+    date_columns_info: dict[str, dict] = {}
+
+    for col in columns:
+        try:
+            date_columns_info[col] = detect_date_format(df[col]).to_dict()
+        except ValueError:
+            continue
+
+    if date_col and date_col in date_columns_info:
+        date_detection = date_columns_info[date_col]
+        try:
+            parsed = parse_observation_dates(df[date_col], mode=date_detection["mode"])
+            dates = [d.date() for d in parsed.dropna().dt.to_pydatetime()]
+            if dates:
+                freq_id, freq_label = detect_frequency_from_dates(dates)
+        except ValueError:
+            pass
 
     return {
         "filename": filename,
@@ -125,4 +154,7 @@ def preview_upload_bytes(data: bytes, filename: str) -> dict:
         "suggested_frequency": freq_id,
         "suggested_frequency_label": freq_label,
         "frequencies": FREQUENCY_OPTIONS,
+        "date_parse_modes": DATE_PARSE_MODES,
+        "date_detection": date_detection,
+        "date_columns_info": date_columns_info,
     }

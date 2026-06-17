@@ -59,6 +59,12 @@
           <p class="subtitle">{% block page_subtitle %}{% endblock %}</p>
         </div>
         <div class="topbar-actions">
+          <a href="{{ url_for('static', filename='docs/tslab_benutzerhandbuch.pdf') }}"
+             class="btn-help"
+             target="_blank"
+             rel="noopener noreferrer"
+             title="Benutzerhandbuch (PDF)"
+             aria-label="Benutzerhandbuch öffnen">?</a>
           <button type="button" class="btn-icon theme-toggle" id="themeToggle" aria-label="Theme wechseln" title="Hell / Dunkel">
             <span class="theme-icon-light">☀</span>
             <span class="theme-icon-dark">☽</span>

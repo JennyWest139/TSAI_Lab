@@ -14,6 +14,7 @@ from tslab.db.engine import get_session, init_db
 from tslab.db.models import Observation, TimeSeries, UploadHistory
 from tslab.services.analysis_window import AnalysisWindow, resolve_analysis_window
 from tslab.services.ingest_werte import _parse_german_number, load_pdax_series
+from tslab.services.date_parse import parse_observation_dates
 
 
 def _slugify(name: str) -> str:
@@ -26,7 +27,10 @@ def _series_to_frame(
     csv_path: Path,
     date_column: str,
     value_column: str,
-    date_format: str,
+    *,
+    date_parse_mode: str = "auto",
+    date_format: str | None = None,
+    dayfirst: bool | None = None,
     sep: str,
     encoding: str,
 ) -> pd.DataFrame:
@@ -34,7 +38,12 @@ def _series_to_frame(
     if date_column not in df.columns or value_column not in df.columns:
         raise KeyError(f"Spalten {date_column!r}, {value_column!r} fehlen in {csv_path}")
 
-    dates = pd.to_datetime(df[date_column], format=date_format)
+    dates = parse_observation_dates(
+        df[date_column],
+        mode=date_parse_mode,
+        strftime_format=date_format,
+        dayfirst=dayfirst,
+    )
     values = _parse_german_number(df[value_column])
     out = pd.DataFrame({"obs_date": dates, "value": values}).dropna()
     out = out.sort_values("obs_date").drop_duplicates("obs_date", keep="last")
@@ -48,7 +57,9 @@ def import_series_from_csv(
     csv_path: str | Path,
     date_column: str = "Datum1",
     value_column: str = "PDAX",
-    date_format: str = "%d.%m.%Y",
+    date_parse_mode: str = "auto",
+    date_format: str | None = None,
+    dayfirst: bool | None = None,
     sep: str = ";",
     encoding: str = "utf-8-sig",
     replace_existing: bool = True,
@@ -56,7 +67,14 @@ def import_series_from_csv(
     """Importiert eine Wertespalte aus CSV in die DB."""
     path = Path(csv_path)
     frame = _series_to_frame(
-        path, date_column, value_column, date_format, sep, encoding
+        path,
+        date_column,
+        value_column,
+        date_parse_mode=date_parse_mode,
+        date_format=date_format,
+        dayfirst=dayfirst,
+        sep=sep,
+        encoding=encoding,
     )
     if frame.empty:
         raise ValueError(f"Keine Werte fuer {value_column} in {path}")
@@ -209,7 +227,8 @@ def seed_werte_csv_columns(
             csv_path=path,
             date_column=date_col,
             value_column=col,
-            date_format=csv_cfg.get("date_format", "%d.%m.%Y"),
+            date_parse_mode="auto",
+            date_format=csv_cfg.get("date_format"),
             sep=csv_cfg.get("sep", ";"),
             encoding=csv_cfg.get("encoding", "utf-8-sig"),
         )

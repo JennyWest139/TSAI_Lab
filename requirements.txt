@@ -14,6 +14,7 @@ psycopg2-binary>=2.9.9
 # Web-Dashboard
 Flask>=3.0.0
 openpyxl>=3.1.0
+reportlab>=4.0.0
 # Phase 2+ (Reports)
 # openpyxl>=3.1.0
 # weasyprint>=62.0

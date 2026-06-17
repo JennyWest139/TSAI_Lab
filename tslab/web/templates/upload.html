@@ -25,6 +25,10 @@
           <select id="dateColumn" name="date_column" required></select>
         </div>
         <div class="field-row">
+          <label for="dateParseMode">Datumsformat</label>
+          <select id="dateParseMode" name="date_parse_mode"></select>
+        </div>
+        <div class="field-row">
           <label for="valueColumn">Wertespalte</label>
           <select id="valueColumn" name="value_column" required></select>
         </div>
@@ -37,8 +41,25 @@
           <select id="uploadFrequency" name="frequency"></select>
         </div>
       </div>
+
+      <section class="card card-muted date-detect-panel" id="dateDetectPanel">
+        <h3>Datumserkennung</h3>
+        <p class="hint" id="dateOrderHint">Reihenfolge wird nach Dateiauswahl angezeigt.</p>
+        <dl class="meta-dl" id="dateDetectMeta"></dl>
+        <div class="table-wrap" id="dateSampleWrap" hidden>
+          <table class="data-table data-table-compact">
+            <thead>
+              <tr><th>Rohwert in Datei</th><th>Erkannt als</th></tr>
+            </thead>
+            <tbody id="dateSampleBody"></tbody>
+          </table>
+        </div>
+        <p class="hint field-error" id="dateDetectError" hidden></p>
+      </section>
+
       <input type="hidden" id="uploadSep" name="sep" value=";">
-      <input type="hidden" id="uploadDateFormat" name="date_format" value="%d.%m.%Y">
+      <input type="hidden" id="uploadEncoding" name="encoding" value="utf-8-sig">
+      <input type="hidden" id="uploadDateFormat" name="date_format" value="">
       <div class="form-actions">
         <button type="submit" class="btn btn-primary">Importieren</button>
       </div>
@@ -50,6 +71,7 @@
 <section class="card">
   <h2>Hinweise</h2>
   <ul class="hint-list">
+    <li>Datumsformat wird automatisch erkannt (ISO, Tag.Monat.Jahr, …) — bei Bedarf anpassen.</li>
     <li>Import in PostgreSQL, Tabelle <code>observations</code>.</li>
     <li>Rhythmus wird aus Datumsabständen vorgeschlagen.</li>
     <li>Reihe erscheint unter <a href="{{ url_for('series_page') }}">Zeitreihen</a>.</li>
