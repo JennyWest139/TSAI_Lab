@@ -5,7 +5,7 @@ from __future__ import annotations
 import unittest
 
 from tslab.services.delete_service import PROTECTED_TAG
-from tslab.services.report_service import generate_object_report, load_report_config
+from tslab.services.report_service import generate_run_report, load_report_config
 
 
 class DeleteServiceTests(unittest.TestCase):
@@ -18,8 +18,11 @@ class ReportServiceTests(unittest.TestCase):
         cfg = load_report_config()
         self.assertFalse(cfg.enabled)
 
-    def test_generate_stub_when_disabled(self) -> None:
-        result = generate_object_report("series", "pdax")
+    def test_generate_disabled_when_off(self) -> None:
+        cfg = load_report_config()
+        if cfg.enabled:
+            self.skipTest("ai_reports enabled in environment")
+        result = generate_run_report("output/nonexistent")
         self.assertFalse(result["ok"])
         self.assertEqual(result["status"], "disabled")
 

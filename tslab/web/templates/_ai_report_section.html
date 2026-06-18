@@ -1,0 +1,18 @@
+{# KI-Bericht (optional) — Korrelation & TSA #}
+<section class="card">
+  <h2>{{ section_title | default("KI-Bericht (optional)") }}</h2>
+  {% if ai_reports_enabled and report_models %}
+  <div class="field-row">
+    <label for="{{ form_prefix }}ReportModel">KI-Bericht</label>
+    <select id="{{ form_prefix }}ReportModel" name="report_model">
+      <option value="" selected>Kein KI-Bericht</option>
+      {% for m in report_models %}
+      <option value="{{ m.id }}">{{ m.label }}</option>
+      {% endfor %}
+    </select>
+    <p class="hint">Bei Modellwahl wird nach dem Lauf <code>ai_bericht.docx</code> erstellt (PNG, TXT, CSV per KI).</p>
+  </div>
+  {% else %}
+  <p class="hint">KI-Berichte: <code>TSLAB_AI_REPORTS_ENABLED=1</code> und <code>OPENAI_API_KEY</code> in <code>.env</code> setzen, dann Web neu starten.</p>
+  {% endif %}
+</section>

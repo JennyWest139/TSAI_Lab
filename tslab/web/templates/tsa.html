@@ -85,8 +85,12 @@
     </div>
   </section>
 
+  {% with form_prefix='tsa', section_title='5 · KI-Bericht (optional)' %}
+  {% include '_ai_report_section.html' %}
+  {% endwith %}
+
   <section class="card card-muted">
-    <h2>5 · Ergebnis (später)</h2>
+    <h2>6 · Ergebnis (später)</h2>
     <ul class="hint-list">
       <li>PNG: Prognose Abgleich / Forward, Residuen, Niveau-Rücktransformation</li>
       <li>Interaktive HTML-Charts (Hover-Werte) — Platzhalter vorbereitet</li>

@@ -108,6 +108,10 @@
     <p class="hint">Von- und Bis-Datum sind unabhängig wählbar (nur gültige Zeitstempel der Schnittmenge). Bedingung: Von-Datum liegt vor Bis-Datum.</p>
   </section>
 
+  {% with form_prefix='corr', section_title='4 · KI-Bericht (optional)' %}
+  {% include '_ai_report_section.html' %}
+  {% endwith %}
+
   <div class="form-actions">
     <button type="submit" class="btn btn-primary btn-lg">Korrelation starten</button>
     <a href="{{ url_for('correlation_history_page') }}" class="btn btn-ghost">Historie</a>

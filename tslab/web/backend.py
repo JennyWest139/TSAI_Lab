@@ -47,6 +47,11 @@ from tslab.services.entity_tags import (
     suggest_tags,
 )
 from tslab.services.tsa_job import forecast_plot_window_from_payload, run_tsa_job
+from tslab.services.report_service import (
+    ai_reports_available,
+    generate_run_report,
+    list_report_models,
+)
 from tslab.services.frequency_detect import detect_frequency_from_dates
 from tslab.services.month_align import (
     compute_pair_overlap,
@@ -449,6 +454,30 @@ class WebBackend:
             "redirect_url": f"/series/{meta.slug}",
         }
 
+    @property
+    def ai_reports_enabled(self) -> bool:
+        return ai_reports_available()
+
+    def list_report_models(self) -> list[dict]:
+        return list_report_models()
+
+    def _want_ai_report(self, payload: dict) -> bool:
+        model_id = str(payload.get("report_model") or "").strip()
+        return bool(model_id) and model_id not in ("none", "off", "0")
+
+    def _maybe_generate_ai_report(
+        self, payload: dict, output_dir: str, *, run_type: str
+    ) -> dict | None:
+        if not self._want_ai_report(payload):
+            return None
+        model_id = str(payload.get("report_model") or "").strip() or None
+        return generate_run_report(output_dir, model_id=model_id, run_type=run_type)
+
+    def generate_output_report(
+        self, output_dir: str, *, model_id: str | None = None, run_type: str = "Analyse"
+    ) -> dict:
+        return generate_run_report(output_dir, model_id=model_id, run_type=run_type)
+
     def list_correlation_history(
         self, *, tag: str | None = None, include_hidden: bool = False
     ) -> list[CorrelationRunView]:
@@ -741,7 +770,7 @@ class WebBackend:
         if job.best_lag is not None and job.best_r is not None:
             msg += f" (bestes |r|={abs(job.best_r):.3f} bei Lag {job.best_lag})"
 
-        return {
+        result = {
             "ok": True,
             "status": "done",
             "message": msg,
@@ -762,6 +791,12 @@ class WebBackend:
                 "started_at": datetime.now().isoformat(),
             },
         }
+        report = self._maybe_generate_ai_report(payload, out, run_type="Korrelation")
+        if report:
+            result["report"] = report
+            if report.get("ok"):
+                result["message"] += f" · {report.get('message', 'KI-Bericht')}"
+        return result
 
     def run_tsa(self, payload: dict) -> dict:
         if self.uses_mock:
@@ -833,7 +868,7 @@ class WebBackend:
         model_label = ", ".join(job.models_run)
         msg = f"TSA fertig: {series_slug.upper()} ({model_label})"
 
-        return {
+        result = {
             "ok": True,
             "status": "done",
             "message": msg,
@@ -851,6 +886,12 @@ class WebBackend:
                 "started_at": datetime.now().isoformat(),
             },
         }
+        report = self._maybe_generate_ai_report(payload, out, run_type="TSA")
+        if report:
+            result["report"] = report
+            if report.get("ok"):
+                result["message"] += f" · {report.get('message', 'KI-Bericht')}"
+        return result
 
     def tsa_window_preview(self, params: dict) -> dict:
         if self.uses_mock:

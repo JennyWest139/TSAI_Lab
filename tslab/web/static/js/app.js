@@ -111,6 +111,24 @@ const TSLab = (() => {
     setTimeout(() => el.remove(), 4000);
   }
 
+  function formatRunResult(data) {
+    if (!data.ok) {
+      return `<strong>${data.message || "Fehler"}</strong>`;
+    }
+    let html = `<strong>${data.message}</strong>`;
+    const browse = data.job?.browse_url;
+    if (browse) {
+      html += ` <a href="${browse}" class="stat-link">Output-Ordner</a>`;
+    }
+    const rep = data.report;
+    if (rep?.ok && rep.report_url) {
+      html += ` <a href="${rep.report_url}" class="stat-link">Word-Bericht (.docx)</a>`;
+    } else if (rep && !rep.ok) {
+      html += ` <span class="hint"> · KI-Bericht: ${rep.message}</span>`;
+    }
+    return html;
+  }
+
   function parseDate(iso) {
     return new Date(iso + "T12:00:00");
   }
@@ -355,14 +373,7 @@ const TSLab = (() => {
       const panel = document.getElementById("corrResult");
       if (panel) {
         panel.hidden = false;
-        if (data.ok) {
-          const link = data.job?.browse_url
-            ? ` <a href="${data.job.browse_url}" class="stat-link">Output-Ordner</a>`
-            : "";
-          panel.innerHTML = `<strong>${data.message}</strong>${link}`;
-        } else {
-          panel.innerHTML = `<strong>${data.message || "Fehler"}</strong>`;
-        }
+        panel.innerHTML = formatRunResult(data);
       }
       toast(data.ok ? data.message : data.message || "Fehler");
     });
@@ -468,14 +479,7 @@ const TSLab = (() => {
       const panel = document.getElementById("tsaResult");
       if (panel) {
         panel.hidden = false;
-        if (data.ok) {
-          const link = data.job?.browse_url
-            ? ` <a href="${data.job.browse_url}" class="stat-link">Output-Ordner</a>`
-            : "";
-          panel.innerHTML = `<strong>${data.message}</strong>${link}`;
-        } else {
-          panel.innerHTML = `<strong>${data.message || "Fehler"}</strong>`;
-        }
+        panel.innerHTML = formatRunResult(data);
       }
       toast(data.ok ? data.message : data.message || "Fehler");
     });

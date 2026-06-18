@@ -37,11 +37,33 @@ database:
   sqlite_path: "data/tslab.db"
   # SQLite nur bei Bedarf: use_sqlite: true  oder  TSLAB_USE_SQLITE=1
 
-# AI-Berichte (Phase 6 — vorbereitet, standardmaessig aus)
+# AI-Berichte (Phase 6)
 ai_reports:
   enabled: false
-  model: "gpt-4o-mini"
+  max_tokens: 1000
+  default_model: "openai:gpt-4o-mini"
+  output_basename: "ai_bericht.docx"
   openai_api_key: null
+  gemini_api_key: null
   langfuse_public_key: null
   langfuse_secret_key: null
   langfuse_host: "https://cloud.langfuse.com"
+  models:
+    - id: openai:gpt-4o-mini
+      provider: openai
+      label: "OpenAI GPT-4o mini"
+      model: gpt-4o-mini
+      vision: true
+      enabled: true
+    - id: openai:gpt-4o
+      provider: openai
+      label: "OpenAI GPT-4o"
+      model: gpt-4o
+      vision: true
+      enabled: true
+    - id: gemini:gemini-2.0-flash
+      provider: gemini
+      label: "Google Gemini 2.0 Flash"
+      model: gemini-2.0-flash
+      vision: true
+      enabled: false

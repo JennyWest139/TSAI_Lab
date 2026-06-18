@@ -6,6 +6,8 @@ from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request, send_file
 
+from tslab.config_loader import load_dotenv_file
+from tslab.services.report_service import load_report_config
 from tslab.web import mock_data as mock
 from tslab.web.backend import WebBackend
 from tslab.web.output_browser import list_directory, resolve_output_path, serve_output_file, zip_directory
@@ -14,6 +16,7 @@ _WEB_ROOT = Path(__file__).resolve().parent
 
 
 def create_app(*, use_mock: bool = False) -> Flask:
+    load_dotenv_file()
     app = Flask(
         __name__,
         template_folder=str(_WEB_ROOT / "templates"),
@@ -30,6 +33,8 @@ def create_app(*, use_mock: bool = False) -> Flask:
         return {
             "backend_mode": backend.mode_label,
             "uses_mock": backend.uses_mock,
+            "ai_reports_enabled": backend.ai_reports_enabled,
+            "report_models": backend.list_report_models(),
         }
 
     def _series_dicts():
@@ -373,5 +378,33 @@ def create_app(*, use_mock: bool = False) -> Flask:
     @app.get("/api/tags/suggest")
     def api_tags_suggest():
         return jsonify(backend.tag_suggestions(request.args.get("q", "")))
+
+    @app.get("/api/report/models")
+    def api_report_models():
+        return jsonify(
+            {
+                "enabled": backend.ai_reports_enabled,
+                "models": backend.list_report_models(),
+                "default_model": load_report_config().default_model,
+            }
+        )
+
+    @app.post("/api/report/generate")
+    def api_report_generate():
+        body = request.get_json(silent=True) or {}
+        output_dir = str(body.get("output_dir", "")).strip()
+        if not output_dir:
+            return jsonify({"ok": False, "message": "output_dir fehlt."}), 400
+        try:
+            result = backend.generate_output_report(
+                output_dir,
+                model_id=body.get("report_model"),
+                run_type=str(body.get("run_type") or "Analyse"),
+            )
+            return jsonify(result)
+        except ValueError as exc:
+            return jsonify({"ok": False, "message": str(exc)}), 400
+        except Exception as exc:
+            return jsonify({"ok": False, "message": str(exc)}), 500
 
     return app
