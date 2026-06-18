@@ -33,6 +33,10 @@
           <select id="valueColumn" name="value_column" required></select>
         </div>
         <div class="field-row">
+          <label for="decimalMode">Dezimaltrennzeichen</label>
+          <select id="decimalMode" name="decimal_mode"></select>
+        </div>
+        <div class="field-row">
           <label for="seriesName">Name</label>
           <input type="text" id="seriesName" name="series_name">
         </div>
@@ -41,6 +45,19 @@
           <select id="uploadFrequency" name="frequency"></select>
         </div>
       </div>
+
+      <section class="card card-muted date-detect-panel" id="decimalDetectPanel">
+        <h3>Zahlenerkennung</h3>
+        <dl class="meta-dl" id="decimalDetectMeta"></dl>
+        <div class="table-wrap" id="decimalSampleWrap" hidden>
+          <table class="data-table data-table-compact">
+            <thead>
+              <tr><th>Rohwert in Datei</th><th>Erkannt als</th></tr>
+            </thead>
+            <tbody id="decimalSampleBody"></tbody>
+          </table>
+        </div>
+      </section>
 
       <section class="card card-muted date-detect-panel" id="dateDetectPanel">
         <h3>Datumserkennung</h3>

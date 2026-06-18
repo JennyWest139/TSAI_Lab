@@ -39,10 +39,11 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.no_mock_fallback and not args.mock:
-        from tslab.db.engine import check_connection
+        from tslab.db.engine import check_connection, init_db
 
         try:
             check_connection()
+            init_db()
         except Exception as exc:
             print(exc)
             print(SETUP_HINT)

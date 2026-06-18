@@ -8,6 +8,7 @@ import pandas as pd
 
 from tslab.services.analysis_mode import AnalysisMode, get_analysis_mode_config, prepare_model_returns
 from tslab.services.decomposition import extract_trend_component
+from tslab.services.month_align import align_pair_for_frequency
 from tslab.services.transforms import log_returns
 
 
@@ -39,10 +40,18 @@ def _align_pair(
     *,
     start: str | None = None,
     end: str | None = None,
+    frequency: str = "MS",
 ) -> tuple[pd.Series, pd.Series]:
-    """Gemeinsame Zeitstempel (Schnittmenge) im Fenster."""
-    a = _slice_series(series_a, start=start, end=end)
-    b = _slice_series(series_b, start=start, end=end)
+    """Gemeinsame Frequenzbasis im Fenster."""
+    a, b = align_pair_for_frequency(series_a, series_b, frequency)
+    if start:
+        a = a.loc[a.index >= pd.Timestamp(start)]
+        b = b.loc[b.index >= pd.Timestamp(start)]
+    if end:
+        a = a.loc[a.index <= pd.Timestamp(end)]
+        b = b.loc[b.index <= pd.Timestamp(end)]
+    if a.empty or b.empty:
+        raise ValueError("Keine gemeinsamen Zeitstempel im gewaehlten Fenster.")
     common = a.index.intersection(b.index)
     if common.empty:
         raise ValueError("Keine gemeinsamen Zeitstempel im gewaehlten Fenster.")
@@ -94,8 +103,13 @@ def build_series_chart_payload(
     if levels.empty:
         raise ValueError("Keine Beobachtungen im gewaehlten Fenster.")
 
-    trend_meta = extract_trend_component(levels)
-    trend = trend_meta.trend.reindex(levels.index)
+    trend_meta = None
+    trend: pd.Series | None = None
+    try:
+        trend_meta = extract_trend_component(levels)
+        trend = trend_meta.trend.reindex(levels.index)
+    except ValueError:
+        trend = pd.Series([None] * len(levels), index=levels.index)
 
     payload: dict[str, Any] = {
         "slug": slug,
@@ -103,10 +117,14 @@ def build_series_chart_payload(
         "value_label": "Originalwert",
         "dates": _iso_dates(levels.index),
         "values": _float_values(levels),
-        "trend": _float_values(trend),
-        "trend_model": trend_meta.model,
-        "trend_period": trend_meta.period,
-        "trend_note": trend_meta.footnote_de(),
+        "trend": _float_values(trend) if trend is not None else [None] * len(levels),
+        "trend_model": trend_meta.model if trend_meta else None,
+        "trend_period": trend_meta.period if trend_meta else None,
+        "trend_note": (
+            trend_meta.footnote_de()
+            if trend_meta
+            else f"Trend nicht berechenbar: weniger als 6 Beobachtungen ({len(levels)})."
+        ),
         "observation_count": len(levels),
         "returns_recommended": _returns_recommended(levels, slug),
     }
@@ -127,11 +145,24 @@ def build_pair_chart_payload(
     end: str | None = None,
     include_returns: bool = False,
     analysis_mode: str | None = None,
+    frequency: str = "MS",
 ) -> dict[str, Any]:
     """Zwei Reihen (Original + Trend) fuer Korrelations-Vorschau."""
-    a, b = _align_pair(series_a, series_b, start=start, end=end)
-    trend_a = extract_trend_component(a)
-    trend_b = extract_trend_component(b)
+    a, b = _align_pair(
+        series_a, series_b, start=start, end=end, frequency=frequency
+    )
+
+    def _trend_or_null(levels: pd.Series) -> tuple[pd.Series, str]:
+        try:
+            meta = extract_trend_component(levels)
+            return meta.trend.reindex(levels.index), meta.footnote_de()
+        except ValueError:
+            null = pd.Series([None] * len(levels), index=levels.index)
+            note = f"Trend nicht berechenbar: weniger als 6 Beobachtungen ({len(levels)})."
+            return null, note
+
+    trend_a, note_a = _trend_or_null(a)
+    trend_b, note_b = _trend_or_null(b)
 
     returns_a_ok = _returns_recommended(a, slug_a)
     returns_b_ok = _returns_recommended(b, slug_b)
@@ -147,16 +178,16 @@ def build_pair_chart_payload(
             "label": label_a,
             "dates": _iso_dates(a.index),
             "values": _float_values(a),
-            "trend": _float_values(trend_a.trend.reindex(a.index)),
-            "trend_note": trend_a.footnote_de(),
+            "trend": _float_values(trend_a),
+            "trend_note": note_a,
         },
         "series_b": {
             "slug": slug_b,
             "label": label_b,
             "dates": _iso_dates(b.index),
             "values": _float_values(b),
-            "trend": _float_values(trend_b.trend.reindex(b.index)),
-            "trend_note": trend_b.footnote_de(),
+            "trend": _float_values(trend_b),
+            "trend_note": note_b,
         },
     }
     if include_returns:

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import tempfile
+import json
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
@@ -17,7 +17,7 @@ from tslab.db.engine import (
     get_database_url,
     get_session,
 )
-from tslab.db.models import CorrelationHistory, Observation, TimeSeries
+from tslab.db.models import CorrelationHistory, Observation, TimeSeries, TsaHistory
 from tslab.services.analysis_mode import (
     AnalysisMode,
     get_analysis_mode_config,
@@ -25,20 +25,51 @@ from tslab.services.analysis_mode import (
 )
 from tslab.services.correlation import resolve_correlation_study_dates
 from tslab.services.correlation_job import run_correlation_job
+from tslab.services.delete_service import (
+    DeletePreview,
+    delete_correlation,
+    delete_series,
+    delete_tsa,
+    preview_delete_correlation,
+    preview_delete_series,
+    preview_delete_tsa,
+)
+from tslab.services.entity_tags import (
+    ENTITY_CORRELATION,
+    ENTITY_SERIES,
+    ENTITY_TSA,
+    PROTECTED_TAG,
+    add_tag,
+    entity_ids_with_tag,
+    list_tags,
+    remove_tag,
+    set_tags,
+    suggest_tags,
+)
 from tslab.services.tsa_job import forecast_plot_window_from_payload, run_tsa_job
 from tslab.services.frequency_detect import detect_frequency_from_dates
+from tslab.services.month_align import (
+    compute_pair_overlap,
+    snap_to_overlap_stamp_for_frequency,
+)
 from tslab.services.timeseries_store import (
     available_dates_for_series,
     get_series_by_slug,
-    import_series_from_csv,
+    import_series_from_upload,
     list_series,
     load_series_full_pandas,
 )
 from tslab.web import mock_data as mock
-from tslab.web.csv_preview import date_detection_for_column, load_upload_dataframe, preview_upload_bytes
+from tslab.web.csv_preview import (
+    date_detection_for_column,
+    decimal_detection_for_column,
+    load_upload_dataframe,
+    preview_upload_bytes,
+)
 from tslab.web.mock_data import FREQUENCY_OPTIONS, SeriesMeta, suggest_run_name
-from tslab.web.output_browser import browse_url_for, output_root, relative_output_path
+from tslab.web.output_browser import browse_url_for, output_root, relative_output_path, zip_directory
 from tslab.web.series_chart import build_pair_chart_payload, build_series_chart_payload
+from tslab.web.tsa_window_preview import build_tsa_window_preview
 
 
 @dataclass(frozen=True)
@@ -55,14 +86,24 @@ class CorrelationRunView:
     created_at: datetime
     output_dir: str | None = None
     run_name: str | None = None
+    tags: tuple[str, ...] = ()
 
     @property
     def display_name(self) -> str:
         return self.run_name or suggest_run_name(self.series_a, self.series_b)
 
     @property
+    def has_reporting(self) -> bool:
+        return PROTECTED_TAG in self.tags
+
+    @property
     def browse_url(self) -> str | None:
         return browse_url_for(self.output_dir)
+
+    @property
+    def zip_url(self) -> str | None:
+        rel = relative_output_path(self.output_dir) if self.output_dir else None
+        return f"/output/zip/{rel}" if rel else None
 
 
 @dataclass(frozen=True)
@@ -77,19 +118,30 @@ class TsaRunView:
     status: str
     created_at: datetime
     output_dir: str | None = None
+    tags: tuple[str, ...] = ()
 
     @property
     def display_name(self) -> str:
         return f"{self.series_slug.upper()}_{'-'.join(self.models)}"
 
     @property
+    def has_reporting(self) -> bool:
+        return PROTECTED_TAG in self.tags
+
+    @property
     def browse_url(self) -> str | None:
         return browse_url_for(self.output_dir)
+
+    @property
+    def zip_url(self) -> str | None:
+        rel = relative_output_path(self.output_dir) if self.output_dir else None
+        return f"/output/zip/{rel}" if rel else None
 
 
 def _ts_to_meta(session, ts: TimeSeries) -> SeriesMeta:
     dates = available_dates_for_series(session, ts.id)
     freq_id, freq_label = detect_frequency_from_dates(dates) if dates else ("MS", "Monatlich")
+    tags = tuple(list_tags(session, ENTITY_SERIES, ts.id))
     return SeriesMeta(
         slug=ts.slug,
         name=ts.name,
@@ -100,6 +152,8 @@ def _ts_to_meta(session, ts: TimeSeries) -> SeriesMeta:
         frequency=freq_id,
         frequency_label=freq_label,
         source_file=ts.source_file,
+        id=ts.id,
+        tags=tags,
     )
 
 
@@ -130,11 +184,13 @@ def _validate_date_range(
     *,
     start_label: str = "Von-Datum",
     end_label: str = "Bis-Datum",
+    frequency: str = "D",
 ) -> tuple[str | None, str | None]:
-    if start and start not in dates:
-        raise ValueError(f"{start_label} ist kein gueltiger Zeitstempel der Zeitreihe.")
-    if end and end not in dates:
-        raise ValueError(f"{end_label} ist kein gueltiger Zeitstempel der Zeitreihe.")
+    if dates:
+        if start:
+            start = snap_to_overlap_stamp_for_frequency(dates, start, frequency)
+        if end:
+            end = snap_to_overlap_stamp_for_frequency(dates, end, frequency)
     if start and end and start >= end:
         raise ValueError(f"{start_label} muss vor {end_label} liegen.")
     return start, end
@@ -181,6 +237,9 @@ class WebBackend:
             return self._db_ok
         try:
             check_connection()
+            from tslab.db.migrate import migrate_schema
+
+            migrate_schema()
             self._db_ok = True
         except (DatabaseConnectionError, OSError):
             self._db_ok = False
@@ -211,11 +270,20 @@ class WebBackend:
             return None
         return get_database_kind()
 
-    def list_series(self) -> list[SeriesMeta]:
+    def list_series(self, *, tag: str | None = None, include_hidden: bool = False) -> list[SeriesMeta]:
         if self.uses_mock:
-            return list(mock.MOCK_SERIES)
+            series = list(mock.MOCK_SERIES)
+            if tag:
+                series = [s for s in series if tag in s.tags]
+            return series
         with get_session() as session:
-            return [_ts_to_meta(session, ts) for ts in list_series(session)]
+            rows = list_series(session)
+            if not include_hidden:
+                rows = [ts for ts in rows if ts.hidden_at is None]
+            if tag:
+                ids = set(entity_ids_with_tag(session, ENTITY_SERIES, tag))
+                rows = [ts for ts in rows if ts.id in ids]
+            return [_ts_to_meta(session, ts) for ts in rows]
 
     def series_by_slug(self, slug: str) -> SeriesMeta | None:
         if self.uses_mock:
@@ -245,21 +313,65 @@ class WebBackend:
                 return []
             return [d.isoformat() for d in available_dates_for_series(session, ts.id)]
 
-    def overlap_dates(self, slug_a: str, slug_b: str) -> list[str]:
+    def _overlap_context(
+        self, slug_a: str, slug_b: str, *, frequency: str | None = None
+    ) -> dict | None:
         if self.uses_mock:
             data = mock.pair_overlap(slug_a, slug_b)
-            if data is None:
-                return []
-            return data.get("dates", [])
+            return data
 
         with get_session() as session:
             ts_a = get_series_by_slug(session, slug_a)
             ts_b = get_series_by_slug(session, slug_b)
-            if ts_a is None or ts_b is None:
-                return []
-            a_dates = set(available_dates_for_series(session, ts_a.id))
-            b_dates = set(available_dates_for_series(session, ts_b.id))
-            return sorted(d.isoformat() for d in a_dates & b_dates)
+            if (
+                ts_a is None
+                or ts_b is None
+                or not ts_a.first_date
+                or not ts_b.first_date
+                or not ts_b.last_date
+            ):
+                return None
+
+            dates_a = available_dates_for_series(session, ts_a.id)
+            dates_b = available_dates_for_series(session, ts_b.id)
+            ctx = compute_pair_overlap(
+                dates_a,
+                dates_b,
+                first_a=ts_a.first_date,
+                last_a=ts_a.last_date or ts_a.first_date,
+                count_a=ts_a.observation_count or len(dates_a),
+                first_b=ts_b.first_date,
+                last_b=ts_b.last_date or ts_b.first_date,
+                count_b=ts_b.observation_count or len(dates_b),
+                slug_a=slug_a,
+                slug_b=slug_b,
+                label_a=ts_a.name,
+                label_b=ts_b.name,
+                frequency=frequency,
+            )
+            if ctx is None:
+                return None
+
+            a_dict = mock.series_to_dict(_ts_to_meta(session, ts_a))
+            b_dict = mock.series_to_dict(_ts_to_meta(session, ts_b))
+            return {
+                "series_a": a_dict,
+                "series_b": b_dict,
+                "suggested_run_name": suggest_run_name(slug_a, slug_b),
+                "frequencies": FREQUENCY_OPTIONS,
+                **ctx,
+            }
+
+    def overlap_dates(
+        self, slug_a: str, slug_b: str, *, frequency: str | None = None
+    ) -> list[str]:
+        ctx = self._overlap_context(slug_a, slug_b, frequency=frequency)
+        return ctx.get("dates", []) if ctx else []
+
+    def pair_overlap(
+        self, slug_a: str, slug_b: str, *, frequency: str | None = None
+    ) -> dict | None:
+        return self._overlap_context(slug_a, slug_b, frequency=frequency)
 
     def preview_upload(self, data: bytes, filename: str) -> dict:
         return preview_upload_bytes(data, filename)
@@ -283,6 +395,17 @@ class WebBackend:
             dayfirst=dayfirst,
         )
 
+    def validate_upload_decimals(
+        self,
+        data: bytes,
+        filename: str,
+        *,
+        value_column: str,
+        decimal_mode: str = "auto",
+    ) -> dict:
+        df, _, _ = load_upload_dataframe(data, filename)
+        return decimal_detection_for_column(df, value_column, mode=decimal_mode)
+
     def import_upload(
         self,
         data: bytes,
@@ -296,82 +419,41 @@ class WebBackend:
         dayfirst: bool | None = None,
         sep: str = ";",
         encoding: str = "utf-8-sig",
+        decimal_mode: str = "auto",
     ) -> dict:
         if self.uses_mock:
             return mock.mock_upload_result(filename)
 
-        suffix = Path(filename).suffix or ".csv"
-        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-            tmp.write(data)
-            tmp_path = tmp.name
-
         name = (series_name or value_column).strip()
-        try:
-            with get_session() as session:
-                ts = import_series_from_csv(
-                    session,
-                    name=name,
-                    csv_path=tmp_path,
-                    date_column=date_column,
-                    value_column=value_column,
-                    date_parse_mode=date_parse_mode,
-                    date_format=date_format or None,
-                    dayfirst=dayfirst,
-                    sep=sep,
-                    encoding=encoding,
-                )
-                meta = _ts_to_meta(session, ts)
-        finally:
-            Path(tmp_path).unlink(missing_ok=True)
+        with get_session() as session:
+            ts = import_series_from_upload(
+                session,
+                name=name,
+                data=data,
+                filename=filename,
+                date_column=date_column,
+                value_column=value_column,
+                date_parse_mode=date_parse_mode,
+                date_format=date_format or None,
+                dayfirst=dayfirst,
+                sep=sep,
+                encoding=encoding,
+                decimal_mode=decimal_mode,
+            )
+            meta = _ts_to_meta(session, ts)
 
         return {
             "ok": True,
             "message": f"Importiert: {meta.label_de} ({meta.observation_count} Werte)",
             "series": mock.series_to_dict(meta),
+            "redirect_url": f"/series/{meta.slug}",
         }
 
-    def pair_overlap(self, slug_a: str, slug_b: str) -> dict | None:
+    def list_correlation_history(
+        self, *, tag: str | None = None, include_hidden: bool = False
+    ) -> list[CorrelationRunView]:
         if self.uses_mock:
-            return mock.pair_overlap(slug_a, slug_b)
-
-        with get_session() as session:
-            ts_a = get_series_by_slug(session, slug_a)
-            ts_b = get_series_by_slug(session, slug_b)
-            if ts_a is None or ts_b is None or not ts_a.first_date or not ts_b.first_date:
-                return None
-
-            overlap_start = max(ts_a.first_date, ts_b.first_date)
-            overlap_end = min(ts_a.last_date or overlap_start, ts_b.last_date or overlap_start)
-            if overlap_start > overlap_end:
-                return None
-
-            overlap_n = _overlap_observation_count(
-                session, ts_a.id, ts_b.id, overlap_start, overlap_end
-            )
-            overlap_date_list = self.overlap_dates(slug_a, slug_b)
-            freq_id, freq_label = detect_frequency_from_dates(
-                [date.fromisoformat(d) for d in overlap_date_list]
-            ) if overlap_date_list else ("MS", "Monatlich")
-            a_dict = mock.series_to_dict(_ts_to_meta(session, ts_a))
-            b_dict = mock.series_to_dict(_ts_to_meta(session, ts_b))
-            return {
-                "series_a": a_dict,
-                "series_b": b_dict,
-                "overlap_start": overlap_start.isoformat(),
-                "overlap_end": overlap_end.isoformat(),
-                "suggested_start": overlap_start.isoformat(),
-                "suggested_end": overlap_end.isoformat(),
-                "overlap_observations": overlap_n,
-                "suggested_frequency": freq_id,
-                "suggested_frequency_label": freq_label,
-                "suggested_run_name": suggest_run_name(slug_a, slug_b),
-                "dates": overlap_date_list,
-                "frequencies": FREQUENCY_OPTIONS,
-            }
-
-    def list_correlation_history(self) -> list[CorrelationRunView]:
-        if self.uses_mock:
-            return [
+            runs = [
                 CorrelationRunView(
                     id=r.id,
                     series_a=r.series_a,
@@ -388,72 +470,98 @@ class WebBackend:
                 )
                 for r in mock.MOCK_CORRELATION_HISTORY
             ]
+            if tag:
+                runs = [r for r in runs if tag in r.tags]
+            return runs
 
         with get_session() as session:
-            rows = session.scalars(
-                select(CorrelationHistory).order_by(CorrelationHistory.created_at.desc())
-            ).all()
-            return [
-                CorrelationRunView(
-                    id=r.id,
-                    series_a=r.series_a_slug,
-                    series_b=r.series_b_slug,
-                    start_date=r.start_date or date.today(),
-                    end_date=r.end_date or date.today(),
-                    analysis_mode=None,
-                    max_lag=r.max_lag,
-                    best_lag=r.best_lag,
-                    best_r=r.best_correlation,
-                    created_at=r.created_at,
-                    output_dir=r.output_dir,
-                    run_name=suggest_run_name(r.series_a_slug, r.series_b_slug),
-                )
-                for r in rows
-            ]
-
-    def list_tsa_history(self) -> list[TsaRunView]:
-        views: list[TsaRunView] = []
-        if self.uses_mock:
-            for r in mock.MOCK_TSA_HISTORY:
+            q = select(CorrelationHistory).order_by(CorrelationHistory.created_at.desc())
+            rows = list(session.scalars(q).all())
+            if not include_hidden:
+                rows = [r for r in rows if r.hidden_at is None]
+            views: list[CorrelationRunView] = []
+            for r in rows:
+                tags = tuple(list_tags(session, ENTITY_CORRELATION, r.id))
+                if tag and tag not in tags:
+                    continue
                 views.append(
-                    TsaRunView(
+                    CorrelationRunView(
                         id=r.id,
-                        series_slug=r.series_slug,
-                        models=list(r.models),
+                        series_a=r.series_a_slug,
+                        series_b=r.series_b_slug,
+                        start_date=r.start_date or date.today(),
+                        end_date=r.end_date or date.today(),
                         analysis_mode=r.analysis_mode,
-                        train_start=r.train_start,
-                        train_end=r.train_end,
-                        forecast_end=r.forecast_end,
-                        status=r.status,
+                        max_lag=r.max_lag,
+                        best_lag=r.best_lag,
+                        best_r=r.best_correlation,
                         created_at=r.created_at,
                         output_dir=r.output_dir,
+                        run_name=r.run_name or suggest_run_name(r.series_a_slug, r.series_b_slug),
+                        tags=tags,
                     )
                 )
             return views
 
-        root = output_root()
-        idx = 0
-        for path in sorted(root.glob("tsa_*"), reverse=True):
-            if not path.is_dir():
-                continue
-            idx += 1
-            rel = relative_output_path(path) or path.name
-            views.append(
+    def list_tsa_history(
+        self, *, tag: str | None = None, include_hidden: bool = False
+    ) -> list[TsaRunView]:
+        if self.uses_mock:
+            views = [
                 TsaRunView(
-                    id=idx,
-                    series_slug="pdax",
-                    models=["arma-garch"],
-                    analysis_mode="thesis",
-                    train_start=date(1987, 12, 1),
-                    train_end=date(2006, 7, 1),
-                    forecast_end=date(2008, 7, 1),
-                    status="fertig",
-                    created_at=datetime.fromtimestamp(path.stat().st_mtime),
-                    output_dir=str(path),
+                    id=r.id,
+                    series_slug=r.series_slug,
+                    models=list(r.models),
+                    analysis_mode=r.analysis_mode,
+                    train_start=r.train_start,
+                    train_end=r.train_end,
+                    forecast_end=r.forecast_end,
+                    status=r.status,
+                    created_at=r.created_at,
+                    output_dir=r.output_dir,
                 )
-            )
-        if views:
+                for r in mock.MOCK_TSA_HISTORY
+            ]
+            if tag:
+                views = [v for v in views if tag in v.tags]
             return views
+
+        with get_session() as session:
+            rows = list(
+                session.scalars(
+                    select(TsaHistory).order_by(TsaHistory.created_at.desc())
+                ).all()
+            )
+            if not include_hidden:
+                rows = [r for r in rows if r.hidden_at is None]
+            views: list[TsaRunView] = []
+            for r in rows:
+                tags = tuple(list_tags(session, ENTITY_TSA, r.id))
+                if tag and tag not in tags:
+                    continue
+                try:
+                    models = json.loads(r.models)
+                except json.JSONDecodeError:
+                    models = ["arma-garch"]
+                views.append(
+                    TsaRunView(
+                        id=r.id,
+                        series_slug=r.series_slug,
+                        models=models if isinstance(models, list) else [str(models)],
+                        analysis_mode=r.analysis_mode,
+                        train_start=r.train_start or date.today(),
+                        train_end=r.train_end or date.today(),
+                        forecast_end=r.forecast_end or date.today(),
+                        status=r.status,
+                        created_at=r.created_at,
+                        output_dir=r.output_dir,
+                        tags=tags,
+                    )
+                )
+            if views:
+                return views
+
+        views = []
         for r in mock.MOCK_TSA_HISTORY:
             views.append(
                 TsaRunView(
@@ -512,6 +620,7 @@ class WebBackend:
         end: str | None = None,
         include_returns: bool = False,
         analysis_mode: str | None = None,
+        frequency: str | None = None,
     ) -> dict:
         if not slug_a or not slug_b or slug_a == slug_b:
             raise ValueError("Bitte zwei verschiedene Zeitreihen waehlen.")
@@ -520,13 +629,18 @@ class WebBackend:
         if meta_a is None or meta_b is None:
             raise ValueError("Eine oder beide Zeitreihen wurden nicht gefunden.")
 
-        overlap_dates = self.overlap_dates(slug_a, slug_b)
-        if not overlap_dates:
+        ctx = self._overlap_context(slug_a, slug_b, frequency=frequency)
+        if not ctx or not ctx.get("dates"):
             raise ValueError("Keine gemeinsame Datenbasis fuer diese Paarung.")
+
+        overlap_dates = ctx["dates"]
+        eff_freq = ctx.get("suggested_frequency", "MS")
 
         eff_start = start or overlap_dates[0]
         eff_end = end or overlap_dates[-1]
-        _validate_date_range(overlap_dates, eff_start, eff_end)
+        eff_start, eff_end = _validate_date_range(
+            overlap_dates, eff_start, eff_end, frequency=eff_freq
+        )
 
         series_a = self._load_series_pandas(slug_a)
         series_b = self._load_series_pandas(slug_b)
@@ -541,6 +655,7 @@ class WebBackend:
             end=eff_end,
             include_returns=include_returns,
             analysis_mode=analysis_mode,
+            frequency=eff_freq,
         )
 
     def run_correlation(self, payload: dict) -> dict:
@@ -566,6 +681,9 @@ class WebBackend:
         analysis_mode, mode_config = _mode_config_from_payload(payload)
         start_date = _parse_date_field(payload.get("start_date"), field="start_date")
         end_date = _parse_date_field(payload.get("end_date"), field="end_date")
+        frequency = str(payload.get("frequency") or "").strip() or None
+        if frequency not in ("D", "W", "MS", "Y"):
+            frequency = None
 
         try:
             max_lag = int(payload.get("max_lag", 24))
@@ -574,24 +692,34 @@ class WebBackend:
         if max_lag < 1:
             raise ValueError("max_lag muss mindestens 1 sein.")
 
-        eff_start, eff_end = resolve_study_dates_for_mode(
-            mode_config, start_date=start_date, end_date=end_date
-        )
-
         with get_session() as session:
-            # Fenster gegen echte Ueberlappung pruefen
             ts_a = get_series_by_slug(session, series_a)
             ts_b = get_series_by_slug(session, series_b)
             if ts_a is None or ts_b is None:
                 raise ValueError("Eine oder beide Zeitreihen wurden nicht gefunden.")
 
-            overlap_dates = self.overlap_dates(series_a, series_b)
-            _validate_date_range(overlap_dates, start_date, end_date)
+            ctx = self._overlap_context(series_a, series_b, frequency=frequency)
+            if not ctx or not ctx.get("dates"):
+                raise ValueError("Keine gemeinsame Datenbasis fuer diese Paarung.")
+
+            overlap_dates = ctx["dates"]
+            eff_freq = ctx.get("suggested_frequency", "MS")
+            start_date, end_date = _validate_date_range(
+                overlap_dates, start_date, end_date, frequency=eff_freq
+            )
+
+            eff_start, eff_end = resolve_study_dates_for_mode(
+                mode_config, start_date=start_date, end_date=end_date
+            )
 
             full_a = load_series_full_pandas(session, series_a)
             full_b = load_series_full_pandas(session, series_b)
             resolve_correlation_study_dates(
-                full_a, full_b, start_date=eff_start, end_date=eff_end
+                full_a,
+                full_b,
+                start_date=eff_start,
+                end_date=eff_end,
+                frequency=eff_freq,
             )
 
             job = run_correlation_job(
@@ -602,6 +730,8 @@ class WebBackend:
                 start_date=eff_start,
                 end_date=eff_end,
                 max_lag=max_lag,
+                frequency=eff_freq,
+                run_name=str(payload.get("run_name") or suggest_run_name(series_a, series_b)),
             )
 
         out = str(job.output_dir)
@@ -717,7 +847,104 @@ class WebBackend:
                 "output_dir": out,
                 "output_preview": out,
                 "browse_url": browse,
-                "study_label": job.context.study.analysis_label,
+                "history_id": job.history_id,
                 "started_at": datetime.now().isoformat(),
             },
         }
+
+    def tsa_window_preview(self, params: dict) -> dict:
+        if self.uses_mock:
+            slug = str(params.get("series_slug", "pdax"))
+            series = self._load_series_pandas(slug)
+            dates = [d.date().isoformat() for d in series.index]
+            values = [round(float(v), 6) for v in series.values]
+            return {
+                "slug": slug,
+                "dates": dates,
+                "values": values,
+                "regions": [],
+                "plot_region": None,
+                "observation_count": len(dates),
+            }
+        analysis_mode, mode_config = _mode_config_from_payload(params)
+        with get_session() as session:
+            return build_tsa_window_preview(
+                session,
+                mode_config=mode_config,
+                series_slug=str(params.get("series_slug", "")).strip(),
+                start_date=params.get("train_start"),
+                end_date=params.get("train_end"),
+                forecast_end=params.get("forecast_end"),
+                plot_pre_years=float(params["plot_pre_years"]) if params.get("plot_pre_years") not in (None, "") else None,
+                plot_forecast_years=float(params["plot_forecast_years"]) if params.get("plot_forecast_years") not in (None, "") else None,
+                plot_post_years=float(params["plot_post_years"]) if params.get("plot_post_years") not in (None, "") else None,
+            )
+
+    def _delete_preview_to_dict(self, p: DeletePreview) -> dict:
+        return {
+            "entity_type": p.entity_type,
+            "entity_id": p.entity_id,
+            "label": p.label,
+            "tags": p.tags,
+            "actions": p.actions,
+            "warnings": p.warnings,
+            "blocked": p.blocked,
+            "block_reason": p.block_reason,
+        }
+
+    def delete_preview(self, payload: dict) -> dict:
+        entity_type = str(payload.get("entity_type", "")).strip()
+        scope = str(payload.get("scope", "both")).strip()
+        if scope not in ("ui", "storage", "both"):
+            raise ValueError("scope muss ui, storage oder both sein.")
+        with get_session() as session:
+            if entity_type == ENTITY_SERIES:
+                preview = preview_delete_series(session, str(payload.get("slug", "")), scope)  # type: ignore[arg-type]
+            elif entity_type == ENTITY_CORRELATION:
+                preview = preview_delete_correlation(session, int(payload.get("id")), scope)  # type: ignore[arg-type]
+            elif entity_type == ENTITY_TSA:
+                preview = preview_delete_tsa(session, int(payload.get("id")), scope)  # type: ignore[arg-type]
+            else:
+                raise ValueError("Unbekannter entity_type.")
+        return {"ok": True, "preview": self._delete_preview_to_dict(preview)}
+
+    def delete_confirm(self, payload: dict) -> dict:
+        entity_type = str(payload.get("entity_type", "")).strip()
+        scope = str(payload.get("scope", "both")).strip()
+        if scope not in ("ui", "storage", "both"):
+            raise ValueError("scope muss ui, storage oder both sein.")
+        with get_session() as session:
+            if entity_type == ENTITY_SERIES:
+                delete_series(session, str(payload.get("slug", "")), scope)  # type: ignore[arg-type]
+            elif entity_type == ENTITY_CORRELATION:
+                delete_correlation(session, int(payload.get("id")), scope)  # type: ignore[arg-type]
+            elif entity_type == ENTITY_TSA:
+                delete_tsa(session, int(payload.get("id")), scope)  # type: ignore[arg-type]
+            else:
+                raise ValueError("Unbekannter entity_type.")
+        return {"ok": True, "message": "Erfolgreich geloescht."}
+
+    def update_tags(self, payload: dict) -> dict:
+        entity_type = str(payload.get("entity_type", "")).strip()
+        entity_id = payload.get("entity_id")
+        tags = payload.get("tags") or []
+        if not isinstance(tags, list):
+            raise ValueError("tags muss eine Liste sein.")
+        if self.uses_mock:
+            return {"ok": True, "tags": tags}
+        with get_session() as session:
+            if entity_type == ENTITY_SERIES:
+                ts = get_series_by_slug(session, str(entity_id))
+                if ts is None:
+                    raise LookupError("Zeitreihe nicht gefunden.")
+                eid = ts.id
+            else:
+                eid = int(entity_id)
+            clean = set_tags(session, entity_type, eid, [str(t) for t in tags])
+        return {"ok": True, "tags": clean}
+
+    def tag_suggestions(self, prefix: str = "") -> list[str]:
+        if self.uses_mock:
+            return [PROTECTED_TAG, "_Delete_20260715"]
+        with get_session() as session:
+            return suggest_tags(session, prefix=prefix)

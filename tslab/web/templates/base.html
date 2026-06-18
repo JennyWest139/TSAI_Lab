@@ -79,6 +79,26 @@
   </div>
 
   <div class="toast-container" id="toastContainer"></div>
+
+  <div id="deleteModal" class="modal-overlay" hidden>
+    <div class="card modal-card">
+      <h2>Löschen bestätigen</h2>
+      <form id="deleteForm">
+        <div id="deleteSummary" class="hint"></div>
+        <fieldset class="field-row">
+          <legend>Scope</legend>
+          <label><input type="radio" name="delete_scope" value="ui"> Nur Oberfläche (ausblenden)</label>
+          <label><input type="radio" name="delete_scope" value="storage"> Nur DB / Ordner</label>
+          <label><input type="radio" name="delete_scope" value="both" checked> Beides</label>
+        </fieldset>
+        <div class="form-actions">
+          <button type="button" class="btn btn-ghost" data-delete-cancel>Abbrechen</button>
+          <button type="submit" class="btn btn-primary" id="deleteConfirmBtn">Löschen</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <script src="{{ url_for('static', filename='js/app.js') }}"></script>
   {% block scripts %}{% endblock %}
 </body>

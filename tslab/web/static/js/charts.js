@@ -252,11 +252,68 @@ const TSLabCharts = (() => {
     refresh();
   }
 
+  function renderTsaWindowChart(containerId, data) {
+    const el = document.getElementById(containerId);
+    if (!el || !window.Plotly || !data?.dates?.length) return;
+
+    const shapes = (data.regions || []).map((r) => ({
+      type: "rect",
+      xref: "x",
+      yref: "paper",
+      x0: r.start,
+      x1: r.end,
+      y0: 0,
+      y1: 1,
+      fillcolor: r.color,
+      line: { width: 0 },
+      layer: "below",
+    }));
+    if (data.plot_region?.start && data.plot_region?.end) {
+      shapes.push({
+        type: "rect",
+        xref: "x",
+        yref: "paper",
+        x0: data.plot_region.start,
+        x1: data.plot_region.end,
+        y0: 0,
+        y1: 1,
+        fillcolor: "rgba(0,0,0,0)",
+        line: { color: "#6b7280", width: 2, dash: "dot" },
+        layer: "above",
+      });
+    }
+
+    const traces = [
+      {
+        x: data.dates,
+        y: data.values,
+        name: "Zeitreihe",
+        mode: "lines",
+        line: { color: "#1f6feb", width: 2 },
+        hovertemplate: hoverTemplate(data.slug || "Wert", "Wert"),
+      },
+    ];
+
+    const layout = {
+      ...plotTheme(),
+      margin: { l: 56, r: 24, t: 48, b: 48 },
+      title: { text: wrapPlotlyText("TSA-Zeitfenster (Training · Holdout · Prognose)", 52), font: { size: 14 } },
+      xaxis: { ...plotTheme().xaxis, title: "Datum" },
+      yaxis: { ...plotTheme().yaxis, title: "Wert" },
+      shapes,
+      showlegend: false,
+      hovermode: "x unified",
+    };
+
+    Plotly.react(el, traces, layout, { responsive: true, displayModeBar: true });
+  }
+
   return {
     wrapPlotlyText,
     renderSeriesChart,
     renderPairChart,
     renderReturnsPairChart,
+    renderTsaWindowChart,
     initSeriesDetail,
     loadSeriesChart,
   };

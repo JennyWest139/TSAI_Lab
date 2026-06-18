@@ -17,6 +17,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
+EntityType = str  # 'series' | 'correlation' | 'tsa'
+
 
 class Base(DeclarativeBase):
     pass
@@ -34,6 +36,7 @@ class TimeSeries(Base):
     first_date: Mapped[date | None] = mapped_column(Date)
     last_date: Mapped[date | None] = mapped_column(Date)
     observation_count: Mapped[int] = mapped_column(default=0)
+    hidden_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -83,7 +86,44 @@ class CorrelationHistory(Base):
     aligned_observations: Mapped[int] = mapped_column(default=0)
     best_lag: Mapped[int | None] = mapped_column()
     best_correlation: Mapped[float | None] = mapped_column(Float)
+    analysis_mode: Mapped[str | None] = mapped_column(String(32))
+    run_name: Mapped[str | None] = mapped_column(String(256))
     output_dir: Mapped[str | None] = mapped_column(String(1024))
+    hidden_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class TsaHistory(Base):
+    __tablename__ = "tsa_history"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    series_slug: Mapped[str] = mapped_column(String(120), nullable=False)
+    analysis_mode: Mapped[str] = mapped_column(String(32), nullable=False, default="thesis")
+    models: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    train_start: Mapped[date | None] = mapped_column(Date)
+    train_end: Mapped[date | None] = mapped_column(Date)
+    forecast_end: Mapped[date | None] = mapped_column(Date)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="fertig")
+    output_dir: Mapped[str | None] = mapped_column(String(1024))
+    hidden_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class EntityTag(Base):
+    __tablename__ = "entity_tags"
+    __table_args__ = (
+        UniqueConstraint("entity_type", "entity_id", "tag", name="uq_entity_tags"),
+        Index("ix_entity_tags_tag", "tag"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    entity_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    entity_id: Mapped[int] = mapped_column(nullable=False)
+    tag: Mapped[str] = mapped_column(String(120), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

@@ -154,6 +154,8 @@ def check_connection() -> None:
 
 
 def init_db() -> None:
-    """Legt alle Tabellen an (idempotent)."""
+    """Legt alle Tabellen an (idempotent) und wendet Migrationen an."""
     get_database_url()
-    Base.metadata.create_all(get_engine())
+    from tslab.db.migrate import migrate_schema
+
+    migrate_schema()

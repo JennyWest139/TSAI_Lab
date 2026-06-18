@@ -20,6 +20,8 @@ class SeriesMeta:
     frequency: str
     frequency_label: str
     source_file: str | None = None
+    id: int | None = None
+    tags: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -195,6 +197,8 @@ def series_to_dict(s: SeriesMeta) -> dict:
     d = asdict(s)
     d["first_date"] = s.first_date.isoformat()
     d["last_date"] = s.last_date.isoformat()
+    d["tags"] = list(s.tags)
+    d["has_reporting"] = "Reporting" in s.tags
     return d
 
 
@@ -218,40 +222,45 @@ def mock_series_pandas(slug: str) -> pd.Series:
     return pd.Series(values, index=dates, name=slug)
 
 
+def _mock_observation_dates(meta: SeriesMeta) -> list[date]:
+    if meta.frequency == "D":
+        return [d.date() for d in pd.date_range(meta.first_date, meta.last_date, freq="D")]
+    return [d.date() for d in pd.date_range(meta.first_date, meta.last_date, freq="MS")]
+
+
 def pair_overlap(slug_a: str, slug_b: str) -> dict | None:
     a = series_by_slug(slug_a)
     b = series_by_slug(slug_b)
     if a is None or b is None:
         return None
-    overlap_start = max(a.first_date, b.first_date)
-    overlap_end = min(a.last_date, b.last_date)
-    if overlap_start > overlap_end:
+
+    from tslab.services.month_align import compute_pair_overlap
+
+    dates_a = _mock_observation_dates(a)
+    dates_b = _mock_observation_dates(b)
+    ctx = compute_pair_overlap(
+        dates_a,
+        dates_b,
+        first_a=a.first_date,
+        last_a=a.last_date,
+        count_a=a.observation_count,
+        first_b=b.first_date,
+        last_b=b.last_date,
+        count_b=b.observation_count,
+        slug_a=slug_a,
+        slug_b=slug_b,
+        label_a=a.label_de,
+        label_b=b.label_de,
+    )
+    if ctx is None:
         return None
-    freq = a.frequency if a.frequency == b.frequency else "MS"
-    freq_label = a.frequency_label if a.frequency == b.frequency else "Gemischt (Vorschlag: Monatlich)"
-    months = (overlap_end.year - overlap_start.year) * 12 + overlap_end.month - overlap_start.month + 1
-    dates: list[str] = []
-    d = overlap_start
-    while d <= overlap_end:
-        dates.append(d.isoformat())
-        if d.month == 12:
-            d = date(d.year + 1, 1, 1)
-        else:
-            d = date(d.year, d.month + 1, 1)
 
     return {
         "series_a": series_to_dict(a),
         "series_b": series_to_dict(b),
-        "overlap_start": overlap_start.isoformat(),
-        "overlap_end": overlap_end.isoformat(),
-        "suggested_start": overlap_start.isoformat(),
-        "suggested_end": overlap_end.isoformat(),
-        "overlap_observations": months,
-        "suggested_frequency": freq,
-        "suggested_frequency_label": freq_label,
         "suggested_run_name": suggest_run_name(slug_a, slug_b),
-        "dates": dates,
         "frequencies": FREQUENCY_OPTIONS,
+        **ctx,
     }
 
 

@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, render_template, request, send_file
 
 from tslab.web import mock_data as mock
 from tslab.web.backend import WebBackend
-from tslab.web.output_browser import list_directory, resolve_output_path, serve_output_file
+from tslab.web.output_browser import list_directory, resolve_output_path, serve_output_file, zip_directory
 
 _WEB_ROOT = Path(__file__).resolve().parent
 
@@ -33,7 +33,9 @@ def create_app(*, use_mock: bool = False) -> Flask:
         }
 
     def _series_dicts():
-        return [mock.series_to_dict(s) for s in backend.list_series()]
+        tag = request.args.get("tag") or None
+        include_hidden = request.args.get("include_hidden", "0") in ("1", "true", "yes")
+        return [mock.series_to_dict(s) for s in backend.list_series(tag=tag, include_hidden=include_hidden)]
 
     @app.get("/")
     def dashboard():
@@ -116,6 +118,12 @@ def create_app(*, use_mock: bool = False) -> Flask:
     def output_file(subpath: str):
         return serve_output_file(subpath)
 
+    @app.get("/output/zip/")
+    @app.get("/output/zip/<path:subpath>")
+    def output_zip(subpath: str = ""):
+        zpath = zip_directory(subpath)
+        return send_file(zpath, as_attachment=True, download_name=f"{subpath or 'output'}.zip")
+
     @app.get("/api/series")
     def api_series():
         return jsonify(_series_dicts())
@@ -159,6 +167,7 @@ def create_app(*, use_mock: bool = False) -> Flask:
                 end=request.args.get("end") or None,
                 include_returns=include_returns,
                 analysis_mode=request.args.get("analysis_mode") or None,
+                frequency=request.args.get("frequency") or None,
             )
             return jsonify(data)
         except ValueError as exc:
@@ -168,7 +177,9 @@ def create_app(*, use_mock: bool = False) -> Flask:
     def api_overlap():
         slug_a = request.args.get("a", "")
         slug_b = request.args.get("b", "")
-        data = backend.pair_overlap(slug_a, slug_b)
+        data = backend.pair_overlap(
+            slug_a, slug_b, frequency=request.args.get("frequency") or None
+        )
         if data is None:
             return jsonify({"error": "Keine Ueberlappung oder ungueltige Serie"}), 400
         return jsonify(data)
@@ -260,6 +271,25 @@ def create_app(*, use_mock: bool = False) -> Flask:
         except ValueError as exc:
             return jsonify({"ok": False, "message": str(exc)}), 400
 
+    @app.post("/api/upload/validate-decimals")
+    def api_upload_validate_decimals():
+        f = request.files.get("file")
+        if f is None or not f.filename:
+            return jsonify({"ok": False, "message": "Keine Datei gewaehlt"}), 400
+        value_column = request.form.get("value_column", "")
+        if not value_column:
+            return jsonify({"ok": False, "message": "value_column fehlt"}), 400
+        try:
+            det = backend.validate_upload_decimals(
+                f.read(),
+                f.filename,
+                value_column=value_column,
+                decimal_mode=request.form.get("decimal_mode", "auto"),
+            )
+            return jsonify({"ok": True, "decimal_detection": det})
+        except ValueError as exc:
+            return jsonify({"ok": False, "message": str(exc)}), 400
+
     @app.post("/api/upload")
     def api_upload():
         f = request.files.get("file")
@@ -283,6 +313,7 @@ def create_app(*, use_mock: bool = False) -> Flask:
                 dayfirst=dayfirst,
                 sep=request.form.get("sep", ";"),
                 encoding=request.form.get("encoding", "utf-8-sig"),
+                decimal_mode=request.form.get("decimal_mode", "auto"),
             )
             return jsonify(result)
         except (ValueError, KeyError) as exc:
@@ -307,5 +338,40 @@ def create_app(*, use_mock: bool = False) -> Flask:
             return jsonify({"ok": False, "message": str(exc)}), 400
         except Exception as exc:
             return jsonify({"ok": False, "message": str(exc)}), 500
+
+    @app.get("/api/tsa/window-preview")
+    def api_tsa_window_preview():
+        try:
+            return jsonify(backend.tsa_window_preview(dict(request.args)))
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+    @app.post("/api/delete/preview")
+    def api_delete_preview():
+        body = request.get_json(silent=True) or {}
+        try:
+            return jsonify(backend.delete_preview(body))
+        except (ValueError, LookupError) as exc:
+            return jsonify({"ok": False, "message": str(exc)}), 400
+
+    @app.post("/api/delete/confirm")
+    def api_delete_confirm():
+        body = request.get_json(silent=True) or {}
+        try:
+            return jsonify(backend.delete_confirm(body))
+        except (ValueError, LookupError) as exc:
+            return jsonify({"ok": False, "message": str(exc)}), 400
+
+    @app.post("/api/tags")
+    def api_tags_set():
+        body = request.get_json(silent=True) or {}
+        try:
+            return jsonify(backend.update_tags(body))
+        except (ValueError, LookupError) as exc:
+            return jsonify({"ok": False, "message": str(exc)}), 400
+
+    @app.get("/api/tags/suggest")
+    def api_tags_suggest():
+        return jsonify(backend.tag_suggestions(request.args.get("q", "")))
 
     return app

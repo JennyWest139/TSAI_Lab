@@ -13,14 +13,41 @@ from sqlalchemy.orm import Session
 from tslab.db.engine import get_session, init_db
 from tslab.db.models import Observation, TimeSeries, UploadHistory
 from tslab.services.analysis_window import AnalysisWindow, resolve_analysis_window
-from tslab.services.ingest_werte import _parse_german_number, load_pdax_series
 from tslab.services.date_parse import parse_observation_dates
+from tslab.services.decomposition import pin_inferred_datetime_freq
+from tslab.services.ingest_werte import _parse_german_number, load_pdax_series
+from tslab.services.number_parse import parse_locale_number
+from tslab.services.upload_io import load_upload_dataframe, load_upload_dataframe_from_path
 
 
 def _slugify(name: str) -> str:
     s = name.strip().lower()
     s = re.sub(r"[^a-z0-9]+", "_", s)
     return s.strip("_") or "series"
+
+
+def _dataframe_to_observations(
+    df: pd.DataFrame,
+    date_column: str,
+    value_column: str,
+    *,
+    date_parse_mode: str = "auto",
+    date_format: str | None = None,
+    dayfirst: bool | None = None,
+    decimal_mode: str = "auto",
+) -> pd.DataFrame:
+    if date_column not in df.columns or value_column not in df.columns:
+        raise KeyError(f"Spalten {date_column!r}, {value_column!r} fehlen.")
+
+    dates = parse_observation_dates(
+        df[date_column],
+        mode=date_parse_mode,
+        strftime_format=date_format,
+        dayfirst=dayfirst,
+    )
+    values = parse_locale_number(df[value_column], decimal_mode)
+    out = pd.DataFrame({"obs_date": dates, "value": values}).dropna()
+    return out.sort_values("obs_date").drop_duplicates("obs_date", keep="last")
 
 
 def _series_to_frame(
@@ -31,54 +58,72 @@ def _series_to_frame(
     date_parse_mode: str = "auto",
     date_format: str | None = None,
     dayfirst: bool | None = None,
-    sep: str,
-    encoding: str,
-) -> pd.DataFrame:
-    df = pd.read_csv(csv_path, sep=sep, encoding=encoding, dtype=str)
-    if date_column not in df.columns or value_column not in df.columns:
-        raise KeyError(f"Spalten {date_column!r}, {value_column!r} fehlen in {csv_path}")
-
-    dates = parse_observation_dates(
-        df[date_column],
-        mode=date_parse_mode,
-        strftime_format=date_format,
-        dayfirst=dayfirst,
-    )
-    values = _parse_german_number(df[value_column])
-    out = pd.DataFrame({"obs_date": dates, "value": values}).dropna()
-    out = out.sort_values("obs_date").drop_duplicates("obs_date", keep="last")
-    return out
-
-
-def import_series_from_csv(
-    session: Session,
-    *,
-    name: str,
-    csv_path: str | Path,
-    date_column: str = "Datum1",
-    value_column: str = "PDAX",
-    date_parse_mode: str = "auto",
-    date_format: str | None = None,
-    dayfirst: bool | None = None,
     sep: str = ";",
     encoding: str = "utf-8-sig",
-    replace_existing: bool = True,
-) -> TimeSeries:
-    """Importiert eine Wertespalte aus CSV in die DB."""
-    path = Path(csv_path)
-    frame = _series_to_frame(
-        path,
+    decimal_mode: str = "auto",
+) -> pd.DataFrame:
+    df, _, _ = load_upload_dataframe_from_path(csv_path)
+    return _dataframe_to_observations(
+        df,
         date_column,
         value_column,
         date_parse_mode=date_parse_mode,
         date_format=date_format,
         dayfirst=dayfirst,
-        sep=sep,
-        encoding=encoding,
+        decimal_mode=decimal_mode,
+    )
+
+
+def import_series_from_upload(
+    session: Session,
+    *,
+    name: str,
+    data: bytes,
+    filename: str,
+    date_column: str,
+    value_column: str,
+    date_parse_mode: str = "auto",
+    date_format: str | None = None,
+    dayfirst: bool | None = None,
+    sep: str = ";",
+    encoding: str = "utf-8-sig",
+    decimal_mode: str = "auto",
+    replace_existing: bool = True,
+) -> TimeSeries:
+    """Importiert eine Wertespalte aus Upload-Bytes (CSV/Excel) in die DB."""
+    df, _, _ = load_upload_dataframe(data, filename)
+    frame = _dataframe_to_observations(
+        df,
+        date_column,
+        value_column,
+        date_parse_mode=date_parse_mode,
+        date_format=date_format,
+        dayfirst=dayfirst,
+        decimal_mode=decimal_mode,
     )
     if frame.empty:
-        raise ValueError(f"Keine Werte fuer {value_column} in {path}")
+        raise ValueError(f"Keine Werte fuer {value_column} in {filename}")
+    return _persist_series_frame(
+        session,
+        name=name,
+        frame=frame,
+        source_label=filename,
+        value_column=value_column,
+        date_column=date_column,
+        replace_existing=replace_existing,
+    )
 
+
+def _persist_series_frame(
+    session: Session,
+    *,
+    name: str,
+    frame: pd.DataFrame,
+    source_label: str,
+    value_column: str,
+    date_column: str,
+    replace_existing: bool,
+) -> TimeSeries:
     slug = _slugify(name)
     existing = session.scalar(select(TimeSeries).where(TimeSeries.slug == slug))
 
@@ -87,7 +132,7 @@ def import_series_from_csv(
             delete(Observation).where(Observation.series_id == existing.id)
         )
         ts = existing
-        ts.source_file = str(path)
+        ts.source_file = source_label
         ts.value_column = value_column
         ts.date_column = date_column
     elif existing:
@@ -96,7 +141,7 @@ def import_series_from_csv(
         ts = TimeSeries(
             name=name,
             slug=slug,
-            source_file=str(path),
+            source_file=source_label,
             value_column=value_column,
             date_column=date_column,
         )
@@ -119,7 +164,7 @@ def import_series_from_csv(
 
     session.add(
         UploadHistory(
-            filename=path.name,
+            filename=Path(source_label).name,
             series_id=ts.id,
             rows_imported=len(obs_rows),
             note=f"Import Spalte {value_column}",
@@ -128,6 +173,47 @@ def import_series_from_csv(
     session.commit()
     session.refresh(ts)
     return ts
+
+
+def import_series_from_csv(
+    session: Session,
+    *,
+    name: str,
+    csv_path: str | Path,
+    date_column: str = "Datum1",
+    value_column: str = "PDAX",
+    date_parse_mode: str = "auto",
+    date_format: str | None = None,
+    dayfirst: bool | None = None,
+    sep: str = ";",
+    encoding: str = "utf-8-sig",
+    decimal_mode: str = "auto",
+    replace_existing: bool = True,
+) -> TimeSeries:
+    """Importiert eine Wertespalte aus CSV/Excel-Pfad in die DB."""
+    path = Path(csv_path)
+    frame = _series_to_frame(
+        path,
+        date_column,
+        value_column,
+        date_parse_mode=date_parse_mode,
+        date_format=date_format,
+        dayfirst=dayfirst,
+        sep=sep,
+        encoding=encoding,
+        decimal_mode=decimal_mode,
+    )
+    if frame.empty:
+        raise ValueError(f"Keine Werte fuer {value_column} in {path}")
+    return _persist_series_frame(
+        session,
+        name=name,
+        frame=frame,
+        source_label=str(path),
+        value_column=value_column,
+        date_column=date_column,
+        replace_existing=replace_existing,
+    )
 
 
 def list_series(session: Session) -> list[TimeSeries]:
@@ -163,7 +249,9 @@ def load_series_full_pandas(
     if not rows:
         raise ValueError(f"Keine Beobachtungen fuer {ts.name!r}.")
 
-    idx = pd.DatetimeIndex([r.obs_date for r in rows], freq="MS")
+    idx = pin_inferred_datetime_freq(
+        pd.DatetimeIndex(pd.to_datetime([r.obs_date for r in rows]))
+    )
     return pd.Series([r.value for r in rows], index=idx, name=ts.name)
 
 

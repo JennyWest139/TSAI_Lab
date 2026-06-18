@@ -8,10 +8,22 @@ import pandas as pd
 from statsmodels.tsa.seasonal import seasonal_decompose
 
 
+def pin_inferred_datetime_freq(index: pd.DatetimeIndex) -> pd.DatetimeIndex:
+    """Kalenderfrequenz erkennen (MS oder ME) statt Monatsanfang zu erzwingen."""
+    if not isinstance(index, pd.DatetimeIndex):
+        index = pd.DatetimeIndex(pd.to_datetime(index))
+    if index.freq is not None or len(index) < 3:
+        return index
+    inferred = pd.infer_freq(index)
+    if inferred:
+        return pd.DatetimeIndex(index, freq=inferred)
+    return index
+
+
 def prepare_monthly_series(y: pd.Series) -> pd.Series:
     clean = y.dropna().astype(float).copy()
-    if clean.index.freq is None and isinstance(clean.index, pd.DatetimeIndex):
-        clean.index = pd.DatetimeIndex(clean.index, freq="MS")
+    if isinstance(clean.index, pd.DatetimeIndex):
+        clean.index = pin_inferred_datetime_freq(clean.index)
     return clean
 
 

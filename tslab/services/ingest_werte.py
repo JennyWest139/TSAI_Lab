@@ -7,16 +7,14 @@ from pathlib import Path
 import pandas as pd
 
 from tslab.config_loader import load_defaults
+from tslab.services.decomposition import pin_inferred_datetime_freq
 
 
 def _parse_german_number(series: pd.Series) -> pd.Series:
-    """Wandelt '4.256,08' oder '417,79' in float."""
-    s = series.astype(str).str.strip()
-    s = s.replace({"": pd.NA, "nan": pd.NA})
-    # Tausenderpunkt entfernen, Dezimalkomma -> Punkt
-    s = s.str.replace(".", "", regex=False)
-    s = s.str.replace(",", ".", regex=False)
-    return pd.to_numeric(s, errors="coerce")
+    """Wandelt '4.256,08' oder '417,79' in float (Komma-Modus)."""
+    from tslab.services.number_parse import parse_locale_number
+
+    return parse_locale_number(series, "comma")
 
 
 def load_pdax_series(
@@ -54,7 +52,7 @@ def load_pdax_series(
     dates = pd.to_datetime(df[date_col], format=cfg.get("date_format", "%d.%m.%Y"))
     values = _parse_german_number(df[value_col])
 
-    idx = pd.DatetimeIndex(dates, freq="MS")
+    idx = pin_inferred_datetime_freq(pd.DatetimeIndex(dates))
     series = pd.Series(values.values, index=idx, name=value_col)
     series = series.dropna().sort_index()
     series = series[~series.index.duplicated(keep="last")]

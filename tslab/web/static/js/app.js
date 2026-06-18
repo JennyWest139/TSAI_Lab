@@ -26,6 +26,79 @@ const TSLab = (() => {
         document.getElementById("sidebar")?.classList.remove("open");
       });
     });
+
+    initDeleteModal();
+  }
+
+  function initDeleteModal() {
+    const modal = document.getElementById("deleteModal");
+    if (!modal) return;
+    const form = document.getElementById("deleteForm");
+    const summary = document.getElementById("deleteSummary");
+    const confirmBtn = document.getElementById("deleteConfirmBtn");
+    let pending = null;
+
+    document.querySelectorAll("[data-delete-trigger]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        pending = {
+          entity_type: btn.dataset.entityType,
+          id: btn.dataset.entityId,
+          slug: btn.dataset.entitySlug,
+          scope: btn.dataset.deleteScope || "both",
+        };
+        const body = {
+          entity_type: pending.entity_type,
+          scope: pending.scope,
+        };
+        if (pending.slug) body.slug = pending.slug;
+        else body.id = pending.id;
+        const res = await fetch("/api/delete/preview", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (!data.ok) {
+          toast(data.message || "Vorschau fehlgeschlagen");
+          return;
+        }
+        const p = data.preview;
+        if (summary) {
+          summary.innerHTML = `
+            <p><strong>${p.label}</strong></p>
+            <p>Tags: ${(p.tags || []).join(", ") || "—"}</p>
+            <ul>${(p.actions || []).map((a) => `<li>${a}</li>`).join("")}</ul>
+            ${(p.warnings || []).map((w) => `<p class="hint">${w}</p>`).join("")}
+            ${p.blocked ? `<p class="field-error">${p.block_reason}</p>` : ""}
+          `;
+        }
+        if (confirmBtn) confirmBtn.disabled = !!p.blocked;
+        modal.hidden = false;
+      });
+    });
+
+    modal.querySelectorAll("[data-delete-cancel]").forEach((el) => {
+      el.addEventListener("click", () => {
+        modal.hidden = true;
+      });
+    });
+
+    form?.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (!pending) return;
+      const scope = form.querySelector('input[name="delete_scope"]:checked')?.value || pending.scope;
+      const body = { entity_type: pending.entity_type, scope };
+      if (pending.slug) body.slug = pending.slug;
+      else body.id = pending.id;
+      const res = await fetch("/api/delete/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      toast(data.ok ? data.message : data.message || "Fehler");
+      if (data.ok) window.location.reload();
+    });
   }
 
   function toast(message) {
@@ -51,7 +124,7 @@ const TSLab = (() => {
     bar.style.width = `${Math.max(2, width)}%`;
   }
 
-  function fillDateSelect(selectEl, dates, selected) {
+  function fillDateSelect(selectEl, dates, selected, fallback = "first") {
     if (!selectEl) return;
     selectEl.innerHTML = "";
     dates.forEach((d) => {
@@ -63,7 +136,7 @@ const TSLab = (() => {
     if (selected && dates.includes(selected)) {
       selectEl.value = selected;
     } else if (dates.length) {
-      selectEl.value = dates[dates.length - 1];
+      selectEl.value = fallback === "last" ? dates[dates.length - 1] : dates[0];
     }
   }
 
@@ -74,8 +147,8 @@ const TSLab = (() => {
   function bindIndependentDateRange(vonEl, bisEl, dates, suggestedVon, suggestedBis, onChange) {
     if (!vonEl || !bisEl || !dates || dates.length < 2) return () => false;
 
-    fillDateSelect(vonEl, dates, suggestedVon || dates[0]);
-    fillDateSelect(bisEl, dates, suggestedBis || dates[dates.length - 1]);
+    fillDateSelect(vonEl, dates, suggestedVon || dates[0], "first");
+    fillDateSelect(bisEl, dates, suggestedBis || dates[dates.length - 1], "last");
 
     const validate = () => {
       const von = vonEl.value;
@@ -117,8 +190,10 @@ const TSLab = (() => {
     if (ok) positionBar(bar, vonIso, bisIso, globalStart, globalEnd);
   }
 
-  async function fetchOverlap(a, b) {
-    const res = await fetch(`/api/overlap?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`);
+  async function fetchOverlap(a, b, frequency) {
+    const params = new URLSearchParams({ a, b });
+    if (frequency) params.set("frequency", frequency);
+    const res = await fetch(`/api/overlap?${params}`);
     if (!res.ok) throw new Error("Keine Überlappung");
     return res.json();
   }
@@ -164,6 +239,7 @@ const TSLab = (() => {
       const params = new URLSearchParams({ a, b, start, end });
       if (showReturnsEl?.checked) params.set("show_returns", "1");
       if (modeSelect?.value) params.set("analysis_mode", modeSelect.value);
+      if (freqSelect?.value) params.set("frequency", freqSelect.value);
 
       try {
         const res = await fetch(`/api/correlation/preview?${params}`);
@@ -229,11 +305,14 @@ const TSLab = (() => {
 
       const meta = document.getElementById("overlapMeta");
       if (meta) {
+        const notes = [data.window_note, data.frequency_note].filter(Boolean).join(" ");
         meta.innerHTML = `
           <dt>Serie A</dt><dd>${data.series_a.first_date} → ${data.series_a.last_date} (${data.series_a.observation_count} n)</dd>
           <dt>Serie B</dt><dd>${data.series_b.first_date} → ${data.series_b.last_date} (${data.series_b.observation_count} n)</dd>
           <dt>Schnittmenge</dt><dd>${data.overlap_start} → ${data.overlap_end} (${data.overlap_observations} n)</dd>
           <dt>Rhythmus (Vorschlag)</dt><dd>${data.suggested_frequency_label}</dd>
+          ${data.narrower_series_label ? `<dt>Eingeschränkte Reihe</dt><dd>${data.narrower_series_label}</dd>` : ""}
+          ${notes ? `<dt>Hinweis</dt><dd>${notes}</dd>` : ""}
         `;
       }
       refreshWindowBar();
@@ -244,7 +323,7 @@ const TSLab = (() => {
       const b = selB?.value;
       if (!a || !b || a === b) return;
       try {
-        renderOverlap(await fetchOverlap(a, b));
+        renderOverlap(await fetchOverlap(a, b, freqSelect?.value || null));
       } catch {
         toast("Keine gemeinsame Datenbasis für diese Paarung.");
       }
@@ -252,6 +331,7 @@ const TSLab = (() => {
 
     selA?.addEventListener("change", update);
     selB?.addEventListener("change", update);
+    freqSelect?.addEventListener("change", update);
     showReturnsEl?.addEventListener("change", refreshPreview);
     modeSelect?.addEventListener("change", refreshPreview);
     document.getElementById("themeToggle")?.addEventListener("click", () => {
@@ -337,8 +417,33 @@ const TSLab = (() => {
       );
     }
 
-    sel?.addEventListener("change", updateMeta);
+    sel?.addEventListener("change", () => {
+      updateMeta();
+      refreshWindowChart();
+    });
     updateMeta();
+
+    async function refreshWindowChart() {
+      const chartEl = document.getElementById("tsaWindowChart");
+      if (!chartEl || !window.TSLabCharts?.renderTsaWindowChart) return;
+      const fd = new FormData(form);
+      const params = new URLSearchParams(fd);
+      params.set("series_slug", sel?.value || "");
+      params.delete("models");
+      try {
+        const res = await fetch(`/api/tsa/window-preview?${params}`);
+        const data = await res.json();
+        if (!data.error) TSLabCharts.renderTsaWindowChart("tsaWindowChart", data);
+      } catch (_) {
+        /* ignore preview errors while typing */
+      }
+    }
+
+    ["trainStart", "trainEnd", "forecastEnd", "plotPre", "plotForecast", "plotPost", "tsaMode"].forEach((id) => {
+      document.getElementById(id)?.addEventListener("change", refreshWindowChart);
+      document.getElementById(id)?.addEventListener("input", refreshWindowChart);
+    });
+    setTimeout(refreshWindowChart, 400);
 
     form?.addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -384,9 +489,13 @@ const TSLab = (() => {
     const fileMeta = document.getElementById("fileMeta");
     const dateCol = document.getElementById("dateColumn");
     const dateMode = document.getElementById("dateParseMode");
+    const decimalMode = document.getElementById("decimalMode");
     const dateFormatInput = document.getElementById("uploadDateFormat");
     const encodingInput = document.getElementById("uploadEncoding");
     const dateDetectMeta = document.getElementById("dateDetectMeta");
+    const decimalDetectMeta = document.getElementById("decimalDetectMeta");
+    const decimalSampleWrap = document.getElementById("decimalSampleWrap");
+    const decimalSampleBody = document.getElementById("decimalSampleBody");
     const dateOrderHint = document.getElementById("dateOrderHint");
     const dateSampleWrap = document.getElementById("dateSampleWrap");
     const dateSampleBody = document.getElementById("dateSampleBody");
@@ -399,6 +508,57 @@ const TSLab = (() => {
     const result = document.getElementById("uploadResult");
     let pendingFile = null;
     let previewCache = null;
+
+    function fillDecimalModes(modes, selected) {
+      if (!decimalMode) return;
+      decimalMode.innerHTML = "";
+      (modes || []).forEach((m) => {
+        const o = document.createElement("option");
+        o.value = m.id;
+        o.textContent = m.label;
+        decimalMode.appendChild(o);
+      });
+      if (selected) decimalMode.value = selected;
+    }
+
+    function renderDecimalDetection(det) {
+      if (!det) {
+        if (decimalDetectMeta) decimalDetectMeta.innerHTML = "";
+        if (decimalSampleWrap) decimalSampleWrap.hidden = true;
+        return;
+      }
+      if (decimalDetectMeta) {
+        const pct = Math.round((det.parse_rate || 0) * 100);
+        decimalDetectMeta.innerHTML = `
+          <dt>Lesbarkeit</dt><dd>${det.parsed_count} / ${det.total_count} (${pct}%)</dd>
+          <dt>Modus</dt><dd class="mono">${det.mode}</dd>
+        `;
+      }
+      if (decimalMode && det.mode && decimalMode.querySelector(`option[value="${det.mode}"]`)) {
+        decimalMode.value = det.mode;
+      }
+      if (decimalSampleBody && decimalSampleWrap) {
+        decimalSampleBody.innerHTML = "";
+        (det.samples || []).forEach((row) => {
+          const tr = document.createElement("tr");
+          const parsed = row.parsed == null ? "—" : row.parsed;
+          tr.innerHTML = `<td class="mono">${row.raw}</td><td class="mono">${parsed}</td>`;
+          decimalSampleBody.appendChild(tr);
+        });
+        decimalSampleWrap.hidden = !(det.samples || []).length;
+      }
+    }
+
+    async function refreshDecimalDetection() {
+      if (!pendingFile || !valueCol?.value) return;
+      const fd = new FormData();
+      fd.append("file", pendingFile);
+      fd.append("value_column", valueCol.value);
+      fd.append("decimal_mode", decimalMode?.value || "auto");
+      const res = await fetch("/api/upload/validate-decimals", { method: "POST", body: fd });
+      const data = await res.json();
+      if (data.ok) renderDecimalDetection(data.decimal_detection);
+    }
 
     function fillDateModes(modes, selected) {
       if (!dateMode) return;
@@ -488,6 +648,14 @@ const TSLab = (() => {
       if (input.files?.length) handleFile(input.files[0]);
     });
 
+    valueCol?.addEventListener("change", () => {
+      if (previewCache?.decimal_detection && valueCol.value === previewCache.suggested_value_column) {
+        renderDecimalDetection(previewCache.decimal_detection);
+      }
+      refreshDecimalDetection();
+    });
+    decimalMode?.addEventListener("change", refreshDecimalDetection);
+
     dateCol?.addEventListener("change", () => {
       if (previewCache?.date_columns_info?.[dateCol.value]) {
         renderDateDetection(previewCache.date_columns_info[dateCol.value]);
@@ -514,6 +682,7 @@ const TSLab = (() => {
       if (sepInput) sepInput.value = data.sep || ";";
       if (encodingInput) encodingInput.value = data.encoding || "utf-8-sig";
       fillDateModes(data.date_parse_modes, data.date_detection?.mode || "auto");
+      fillDecimalModes(data.decimal_modes, data.decimal_detection?.mode || "auto");
       fillDateSelect(dateCol, data.columns, data.suggested_date_column);
       fillDateSelect(valueCol, data.value_columns || data.columns, data.suggested_value_column);
       if (seriesName) seriesName.value = data.suggested_value_column || "";
@@ -528,6 +697,7 @@ const TSLab = (() => {
         if (data.suggested_frequency) freq.value = data.suggested_frequency;
       }
       renderDateDetection(data.date_detection);
+      renderDecimalDetection(data.decimal_detection);
     }
 
     form?.addEventListener("submit", async (e) => {
@@ -546,8 +716,9 @@ const TSLab = (() => {
       const data = await res.json();
       if (result) {
         result.hidden = false;
+        const detailLink = data.redirect_url || (data.series?.slug ? `/series/${data.series.slug}` : "/series");
         result.innerHTML = data.ok
-          ? `<strong>${data.message}</strong> · <a href="/series" class="stat-link">Zeitreihen</a>`
+          ? `<strong>${data.message}</strong> · <a href="${detailLink}" class="stat-link">Zur Zeitreihe</a> · <a href="/series" class="stat-link">Alle Zeitreihen</a>`
           : data.message;
       }
       toast(data.ok ? "Import OK" : data.message || "Fehler");

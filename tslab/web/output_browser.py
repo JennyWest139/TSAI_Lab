@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import tempfile
+import zipfile
 from pathlib import Path
 
 from flask import abort, send_file
@@ -70,6 +72,21 @@ def serve_output_file(rel_path: str):
     if target.suffix.lower() not in _IMAGE_EXT | _DOC_EXT:
         abort(403)
     return send_file(target)
+
+
+def zip_directory(rel_path: str = "") -> Path:
+    """Erstellt temporaeres ZIP eines Output-Unterordners."""
+    target = resolve_output_path(rel_path) if rel_path else output_root()
+    if not target.is_dir():
+        abort(404)
+    tmp = Path(tempfile.mkstemp(suffix=".zip")[1])
+    root_name = target.name or "output"
+    with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zf:
+        for item in target.rglob("*"):
+            if item.is_file():
+                arcname = f"{root_name}/{item.relative_to(target).as_posix()}"
+                zf.write(item, arcname)
+    return tmp
 
 
 def browse_url_for(rel_path: str | None) -> str | None:

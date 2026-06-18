@@ -10,6 +10,7 @@ from pathlib import Path
 import pandas as pd
 
 from tslab.services.date_parse import analyze_date_column, detect_date_format, parse_observation_dates
+from tslab.services.number_parse import detect_decimal_mode, parse_locale_number
 from tslab.services.timeseries_store import _series_to_frame
 from tslab.web.csv_preview import preview_upload_bytes
 
@@ -53,9 +54,11 @@ class DateParseTests(unittest.TestCase):
                 date_parse_mode="iso",
                 sep=";",
                 encoding="utf-8",
+                decimal_mode="comma",
             )
             self.assertEqual(len(frame), 2)
             self.assertEqual(frame["obs_date"].iloc[0].date().isoformat(), "1959-09-30")
+            self.assertAlmostEqual(float(frame["value"].iloc[0]), 100.5)
 
 
 if __name__ == "__main__":

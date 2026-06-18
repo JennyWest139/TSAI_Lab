@@ -82,6 +82,8 @@ def run_correlation_job(
     max_lag: int = 24,
     output_root: Path | None = None,
     save_history: bool = True,
+    run_name: str | None = None,
+    frequency: str = "MS",
 ) -> CorrelationJobResult:
     """Fuehrt Korrelation aus, schreibt Output und optional DB-Historie."""
     result = run_correlation(
@@ -92,6 +94,7 @@ def run_correlation_job(
         start_date=start_date,
         end_date=end_date,
         max_lag=max_lag,
+        frequency=frequency,
     )
 
     label = f"{result.study.start_date.date()}_to_{result.study.end_date.date()}"
@@ -109,6 +112,7 @@ def run_correlation_job(
         series_b,
         start_date=start_date,
         end_date=end_date,
+        frequency=frequency,
     )
     plot_aligned_series(
         result,
@@ -130,6 +134,8 @@ def run_correlation_job(
             aligned_observations=result.aligned_observations,
             best_lag=best_lag,
             best_correlation=best_r,
+            analysis_mode=mode_config.slug,
+            run_name=run_name,
             output_dir=str(out),
         )
         session.add(row)

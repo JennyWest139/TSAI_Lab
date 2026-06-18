@@ -5,37 +5,69 @@
 
 {% block content %}
 <section class="card">
-  <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
+  <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;">
     <h2>Läufe</h2>
-    <a href="{{ url_for('tsa_page') }}" class="btn btn-ghost">Neue TSA</a>
+    <div style="display:flex;gap:0.5rem;">
+      <input type="text" id="tagFilter" placeholder="Tag filtern" list="tagSuggestions">
+      <datalist id="tagSuggestions"></datalist>
+      <a href="{{ url_for('tsa_page') }}" class="btn btn-ghost">Neue TSA</a>
+    </div>
   </div>
   <div class="table-wrap">
-    <table class="data-table">
+    <table class="data-table" id="tsaHistoryTable">
       <thead>
         <tr>
           <th>Datum</th>
           <th>Serie</th>
+          <th>Tags</th>
           <th>Modelle</th>
           <th>Training</th>
           <th>Status</th>
           <th>Output</th>
+          <th></th>
         </tr>
       </thead>
       <tbody>
         {% for r in runs %}
-        <tr>
+        <tr data-tags="{{ r.tags|join(',') }}">
           <td class="mono">{{ r.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
           <td>{{ r.series_slug }}</td>
+          <td>{{ r.tags|join(', ') or '—' }}</td>
           <td>{% for m in r.models %}<span class="badge badge-sm">{{ m }}</span> {% endfor %}</td>
           <td class="mono">{{ r.train_start }} → {{ r.train_end }}</td>
           <td><span class="badge badge-ok">{{ r.status }}</span></td>
-          <td>{% if r.browse_url %}<a href="{{ r.browse_url }}" class="stat-link">Ordner</a>{% else %}—{% endif %}</td>
+          <td>
+            {% if r.browse_url %}<a href="{{ r.browse_url }}" class="stat-link">Ordner</a>{% endif %}
+            {% if r.zip_url %} · <a href="{{ r.zip_url }}" class="stat-link">ZIP</a>{% endif %}
+          </td>
+          <td>
+            {% if not r.has_reporting %}
+            <button type="button" class="btn btn-ghost btn-sm" data-delete-trigger data-entity-type="tsa" data-entity-id="{{ r.id }}">Löschen</button>
+            {% else %}<span class="muted" title="Reporting-Tag entfernen">🔒</span>{% endif %}
+          </td>
         </tr>
         {% else %}
-        <tr><td colspan="6" class="muted">Keine Einträge — <a href="{{ url_for('tsa_page') }}">TSA starten</a></td></tr>
+        <tr><td colspan="8" class="muted">Keine Einträge — <a href="{{ url_for('tsa_page') }}">TSA starten</a></td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
 </section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  TSLab.initCore();
+  (async () => {
+    const tags = await (await fetch("/api/tags/suggest")).json();
+    const dl = document.getElementById("tagSuggestions");
+    tags.forEach((t) => { const o = document.createElement("option"); o.value = t; dl?.appendChild(o); });
+    document.getElementById("tagFilter")?.addEventListener("input", (e) => {
+      const tag = e.target.value.trim().toLowerCase();
+      document.querySelectorAll("#tsaHistoryTable tbody tr[data-tags]").forEach((row) => {
+        row.hidden = !!(tag && !(row.dataset.tags || "").toLowerCase().split(",").map((x) => x.trim()).includes(tag));
+      });
+    });
+  })();
+</script>
 {% endblock %}

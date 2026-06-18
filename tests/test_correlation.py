@@ -62,8 +62,8 @@ class CrossCorrelationTests(unittest.TestCase):
         cfg = get_analysis_mode_config(AnalysisMode.THESIS)
         start, end = cfg.default_start, cfg.default_end
         study = resolve_correlation_study_dates(a, b, start_date=start, end_date=end)
-        self.assertEqual(study.start_date, pd.Timestamp("1987-12-01"))
-        self.assertEqual(study.end_date, pd.Timestamp("2007-07-01"))
+        self.assertEqual(study.start_date, pd.Timestamp("1987-12-31"))
+        self.assertEqual(study.end_date, pd.Timestamp("2007-07-31"))
 
 
 if __name__ == "__main__":

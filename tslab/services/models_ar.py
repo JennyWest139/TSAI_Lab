@@ -5,13 +5,15 @@ from __future__ import annotations
 import pandas as pd
 from statsmodels.tsa.ar_model import AutoReg
 
+from tslab.services.decomposition import pin_inferred_datetime_freq
+
 
 def _with_monthly_freq(y: pd.Series) -> pd.Series:
     clean = y.dropna()
     if clean.index.freq is not None:
         return clean
     out = clean.copy()
-    out.index = pd.DatetimeIndex(out.index, freq="MS")
+    out.index = pin_inferred_datetime_freq(pd.DatetimeIndex(out.index))
     return out
 
 

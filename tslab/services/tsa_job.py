@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 
 from sqlalchemy.orm import Session
 
 from tslab.config_loader import resolve_output_dir
+from tslab.db.models import TsaHistory
 from tslab.plots.series_display import SeriesDisplay
 from tslab.plots.time_series_plots import plot_residuals, plot_series
 from tslab.plots.tsa_plots import plot_conditional_volatility, plot_standardized_residuals
@@ -48,6 +50,7 @@ class TsaJobResult:
     context: TSAContext
     models_run: list[str]
     series_slug: str
+    history_id: int | None = None
 
 
 def _level_context_kwargs(ctx: TSAContext, plot_window: ForecastPlotWindow) -> dict:
@@ -476,6 +479,7 @@ def run_tsa_job(
     plot_window: ForecastPlotWindow | None = None,
     output_root: Path | None = None,
     run_coefficient_abgleich: bool = True,
+    save_history: bool = True,
 ) -> TsaJobResult:
     """Fuehrt TSA aus und schreibt Output-Artefakte."""
     model_set = _normalize_models(models)
@@ -518,11 +522,29 @@ def run_tsa_job(
             garch_q=garch_q,
         )
 
+    history_id: int | None = None
+    if save_history:
+        row = TsaHistory(
+            series_slug=series_slug,
+            analysis_mode=mode_config.slug,
+            models=json.dumps(models_run),
+            train_start=ctx.study.start_date.date(),
+            train_end=ctx.study.cutoff.date(),
+            forecast_end=ctx.study.forecast_end.date(),
+            status="fertig",
+            output_dir=str(out),
+        )
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+        history_id = row.id
+
     return TsaJobResult(
         output_dir=out,
         context=ctx,
         models_run=models_run,
         series_slug=series_slug,
+        history_id=history_id,
     )
 
 

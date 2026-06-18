@@ -14,6 +14,7 @@ from tslab.services.analysis_mode import (
     returns_display,
 )
 from tslab.services.analysis_window import StudyDates
+from tslab.services.month_align import align_pair_for_frequency, to_month_end_timestamp
 from tslab.services.timeseries_store import load_series_full_pandas
 
 
@@ -51,22 +52,34 @@ def resolve_correlation_study_dates(
     *,
     start_date: str | pd.Timestamp | None = None,
     end_date: str | pd.Timestamp | None = None,
+    frequency: str = "MS",
 ) -> StudyDates:
-    """Gemeinsames Fenster: Schnitt der verfuegbaren Daten beider Reihen."""
-    a = series_a.dropna().sort_index()
-    b = series_b.dropna().sort_index()
+    """Gemeinsames Fenster auf ausgerichteter Frequenzbasis."""
+    a, b = align_pair_for_frequency(series_a, series_b, frequency)
     if a.empty or b.empty:
         raise ValueError("Eine der Zeitreihen enthaelt keine Beobachtungen.")
 
-    avail_start = max(pd.Timestamp(a.index.min()), pd.Timestamp(b.index.min()))
-    avail_end = min(pd.Timestamp(a.index.max()), pd.Timestamp(b.index.max()))
-    if avail_start > avail_end:
-        raise ValueError("Keine ueberlappenden Daten zwischen beiden Zeitreihen.")
+    avail_start = pd.Timestamp(a.index.min())
+    avail_end = pd.Timestamp(a.index.max())
 
     user_set_start = start_date is not None
     user_set_end = end_date is not None
-    eff_start = pd.Timestamp(start_date) if user_set_start else avail_start
-    eff_end = pd.Timestamp(end_date) if user_set_end else avail_end
+    if user_set_start:
+        eff_start = (
+            to_month_end_timestamp(start_date)
+            if frequency in ("MS", "Q", "Y")
+            else pd.Timestamp(start_date)
+        )
+    else:
+        eff_start = avail_start
+    if user_set_end:
+        eff_end = (
+            to_month_end_timestamp(end_date)
+            if frequency in ("MS", "Q", "Y")
+            else pd.Timestamp(end_date)
+        )
+    else:
+        eff_end = avail_end
 
     if eff_start > eff_end:
         raise ValueError(
@@ -100,19 +113,21 @@ def load_pair_for_correlation(
     *,
     start_date: str | pd.Timestamp | None = None,
     end_date: str | pd.Timestamp | None = None,
+    frequency: str = "MS",
 ) -> tuple[pd.Series, pd.Series, StudyDates]:
     """Laedt zwei Reihen; schneidet auf gemeinsames Analysefenster (read-only)."""
     full_a = load_series_full_pandas(session, slug_a)
     full_b = load_series_full_pandas(session, slug_b)
     study = resolve_correlation_study_dates(
-        full_a, full_b, start_date=start_date, end_date=end_date
+        full_a,
+        full_b,
+        start_date=start_date,
+        end_date=end_date,
+        frequency=frequency,
     )
-    a = full_a.loc[
-        (full_a.index >= study.start_date) & (full_a.index <= study.end_date)
-    ]
-    b = full_b.loc[
-        (full_b.index >= study.start_date) & (full_b.index <= study.end_date)
-    ]
+    a, b = align_pair_for_frequency(full_a, full_b, frequency)
+    a = a.loc[(a.index >= study.start_date) & (a.index <= study.end_date)]
+    b = b.loc[(b.index >= study.start_date) & (b.index <= study.end_date)]
     return a, b, study
 
 
@@ -193,9 +208,15 @@ def run_correlation(
     end_date: str | pd.Timestamp | None = None,
     max_lag: int = 24,
     lags: list[int] | None = None,
+    frequency: str = "MS",
 ) -> CorrelationResult:
     levels_a, levels_b, study = load_pair_for_correlation(
-        session, slug_a, slug_b, start_date=start_date, end_date=end_date
+        session,
+        slug_a,
+        slug_b,
+        start_date=start_date,
+        end_date=end_date,
+        frequency=frequency,
     )
     a, b = prepare_correlation_returns(levels_a, levels_b, mode_config)
     table = compute_cross_correlation(a, b, max_lag=max_lag, lags=lags)

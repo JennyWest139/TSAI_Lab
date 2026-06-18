@@ -1,5 +1,9 @@
 {% extends "base.html" %}
 {% block title %}TSA{% endblock %}
+{% block head %}
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+<script src="{{ url_for('static', filename='js/charts.js') }}"></script>
+{% endblock %}
 {% block page_title %}Time Series Analysis{% endblock %}
 {% block page_subtitle %}Training, Prognosefenster und Modellauswahl{% endblock %}
 
@@ -59,6 +63,7 @@
       </div>
     </div>
     <p class="hint">Training Von/Bis: nur Zeitstempel aus der gewählten Zeitreihe, unabhängig wählbar, Von &lt; Bis. Prognose bis darf über das DB-Ende hinausgehen.</p>
+    <div id="tsaWindowChart" class="plotly-chart" style="min-height:320px;margin-top:1rem;"></div>
   </section>
 
   <section class="card">

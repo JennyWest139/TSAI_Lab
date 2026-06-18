@@ -66,6 +66,35 @@ class SeriesChartTests(unittest.TestCase):
         )
         self.assertFalse(data["returns_recommended"])
 
+    def test_month_end_dates(self) -> None:
+        """Monatsend-Daten (typisch beim Upload) duerfen Grafik nicht blockieren."""
+        from datetime import date
+
+        dates = [
+            date(1991, 1, 31),
+            date(1991, 2, 28),
+            date(1991, 3, 31),
+            date(1991, 4, 30),
+            date(1991, 5, 31),
+            date(1991, 6, 30),
+            date(1991, 7, 31),
+            date(1991, 8, 31),
+            date(1991, 9, 30),
+            date(1991, 10, 31),
+            date(1991, 11, 30),
+            date(1991, 12, 31),
+        ]
+        idx = pd.DatetimeIndex(dates)
+        series = pd.Series(range(12), index=idx, dtype=float, name="upload_test")
+        data = build_series_chart_payload(
+            series,
+            slug="upload_test",
+            label="Upload Test",
+        )
+        self.assertEqual(len(data["dates"]), 12)
+        self.assertEqual(len(data["values"]), 12)
+        self.assertIn("Trendkomponente", data["trend_note"])
+
     def test_slice_window(self) -> None:
         series = mock.mock_series_pandas("dax")
         idx = pd.DatetimeIndex(series.index)

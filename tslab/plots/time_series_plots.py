@@ -18,6 +18,8 @@ from statsmodels.graphics.tsaplots import plot_pacf as sm_plot_pacf
 from statsmodels.tsa.seasonal import seasonal_decompose
 from statsmodels.tsa.stattools import pacf as sm_pacf
 
+from tslab.services.decomposition import pin_inferred_datetime_freq
+
 from tslab.plots.series_display import SeriesDisplay
 from tslab.plots.text_util import wrap_axis_label, wrap_plot_text
 
@@ -73,8 +75,8 @@ def _caption(
 
 def _prepare_series(y: pd.Series) -> pd.Series:
     clean = y.dropna().astype(float).copy()
-    if clean.index.freq is None and isinstance(clean.index, pd.DatetimeIndex):
-        clean.index = pd.DatetimeIndex(clean.index, freq="MS")
+    if isinstance(clean.index, pd.DatetimeIndex):
+        clean.index = pin_inferred_datetime_freq(clean.index)
     return clean
 
 

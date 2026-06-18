@@ -5,37 +5,71 @@
 
 {% block content %}
 <section class="card">
+  <div class="card-header" style="display:flex;gap:1rem;flex-wrap:wrap;align-items:center;margin-bottom:1rem;">
+    <label>Tag-Filter <input type="text" id="tagFilter" placeholder="z. B. Reporting" list="tagSuggestions"></label>
+    <datalist id="tagSuggestions"></datalist>
+    <label><input type="checkbox" id="showHidden"> Ausgeblendete zeigen</label>
+  </div>
   <div class="table-wrap">
-    <table class="data-table table-clickable">
+    <table class="data-table table-clickable" id="seriesTable">
       <thead>
         <tr>
           <th>Name</th>
           <th>Slug</th>
+          <th>Tags</th>
           <th>Von</th>
           <th>Bis</th>
           <th>n</th>
           <th>Rhythmus</th>
-          <th>Quelle</th>
+          <th></th>
         </tr>
       </thead>
       <tbody>
         {% for s in series %}
-        <tr class="row-link" tabindex="0">
+        <tr class="row-link" tabindex="0" data-tags="{{ s.tags|join(',') }}">
           <td>
             <a class="series-link" href="{{ url_for('series_detail_page', slug=s.slug) }}">
               <strong>{{ s.label_de }}</strong>
             </a>
           </td>
           <td class="mono"><a class="series-link muted-link" href="{{ url_for('series_detail_page', slug=s.slug) }}">{{ s.slug }}</a></td>
+          <td class="tag-cell" data-entity-type="series" data-entity-id="{{ s.slug }}">{{ s.tags|join(', ') or '—' }}</td>
           <td>{{ s.first_date }}</td>
           <td>{{ s.last_date }}</td>
           <td>{{ s.observation_count }}</td>
           <td><span class="badge">{{ s.frequency_label }}</span></td>
-          <td class="muted">{{ s.source_file or '—' }}</td>
+          <td>
+            {% if 'Reporting' not in s.tags %}
+            <button type="button" class="btn btn-ghost btn-sm" data-delete-trigger data-entity-type="series" data-entity-slug="{{ s.slug }}">Löschen</button>
+            {% else %}
+            <span class="muted" title="Reporting-Tag entfernen zum Löschen">🔒</span>
+            {% endif %}
+          </td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
 </section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  TSLab.initCore();
+  (async function () {
+    const res = await fetch("/api/tags/suggest");
+    const tags = await res.json();
+    const dl = document.getElementById("tagSuggestions");
+    tags.forEach((t) => { const o = document.createElement("option"); o.value = t; dl?.appendChild(o); });
+    const filter = document.getElementById("tagFilter");
+    const apply = () => {
+      const tag = (filter?.value || "").trim().toLowerCase();
+      document.querySelectorAll("#seriesTable tbody tr").forEach((row) => {
+        const rowTags = (row.dataset.tags || "").toLowerCase();
+        row.hidden = !!(tag && !rowTags.split(",").map((x) => x.trim()).includes(tag));
+      });
+    };
+    filter?.addEventListener("input", apply);
+  })();
+</script>
 {% endblock %}

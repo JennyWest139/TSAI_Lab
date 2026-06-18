@@ -8,6 +8,9 @@
   <a href="{{ url_for('output_browse') }}">output</a>{% if listing.path %} / {{ listing.path }}{% endif %}
   · <a href="{{ url_for('correlation_history_page') }}">Korrelations-Historie</a>
   · <a href="{{ url_for('tsa_history_page') }}">TSA-Historie</a>
+  {% if listing.path or listing.entries %}
+  · <a href="{{ url_for('output_zip', subpath=listing.path) }}" class="stat-link">Als ZIP herunterladen</a>
+  {% endif %}
 </p>
 
 <section class="card">
