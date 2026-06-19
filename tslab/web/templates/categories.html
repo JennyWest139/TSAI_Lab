@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}Kategorien{% endblock %}
+{% block page_title %}Kategorien{% endblock %}
+{% block page_subtitle %}Zeitreihen gruppieren und filtern{% endblock %}
+
+{% block content %}
+<section class="card">
+  <h2>Neue Kategorie</h2>
+  <form id="categoryCreateForm" class="grid two-col">
+    <div class="field-row">
+      <label for="newCategoryName">Name</label>
+      <input type="text" id="newCategoryName" name="name" required maxlength="120" placeholder="z. B. Makro">
+    </div>
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary">Anlegen</button>
+      {% if return_to %}
+      <a href="{{ return_to }}" class="btn btn-ghost">Zurück</a>
+      {% endif %}
+    </div>
+  </form>
+  <p class="hint"><code>Reporting</code> ist reserviert und wird bei der Migration automatisch angelegt.</p>
+</section>
+
+<section class="card">
+  <h2>Vorhandene Kategorien</h2>
+  <div class="table-wrap">
+    <table class="data-table" id="categoriesTable">
+      <thead>
+        <tr><th>Name</th><th>Zeitreihen</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for c in categories %}
+        <tr data-id="{{ c.id }}">
+          <td>
+            {% if c.name == 'Reporting' %}
+            <strong>{{ c.name }}</strong> <span class="muted">(geschützt)</span>
+            {% else %}
+            <input type="text" class="category-name-input" value="{{ c.name }}" data-id="{{ c.id }}">
+            {% endif %}
+          </td>
+          <td>{{ c.series_count }}</td>
+          <td>
+            {% if c.name != 'Reporting' %}
+            <button type="button" class="btn btn-ghost btn-sm" data-save-category="{{ c.id }}">Speichern</button>
+            <button type="button" class="btn btn-ghost btn-sm" data-delete-category="{{ c.id }}">Löschen</button>
+            {% else %}
+            <span class="muted">🔒</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="3" class="hint">Noch keine Kategorien — bitte <code>python scripts/db_migrate.py</code> ausführen.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  TSLab.initCore();
+  TSLab.initCategoriesPage({{ return_to | tojson }});
+</script>
+{% endblock %}

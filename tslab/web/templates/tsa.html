@@ -16,7 +16,7 @@
         <label for="tsaSeries">Zeitreihe</label>
         <select id="tsaSeries" name="series_slug" required>
           {% for s in series %}
-          <option value="{{ s.slug }}" {% if s.slug == 'pdax' %}selected{% endif %}>{{ s.label_de }}</option>
+          <option value="{{ s.slug }}" data-category-id="{{ s.category_id or '' }}" {% if s.slug == 'pdax' %}selected{% endif %}>{{ s.label_de }}</option>
           {% endfor %}
         </select>
       </div>
@@ -45,16 +45,62 @@
   </div>
 
   <section class="card">
+    <h2>2b · Modellordnung (ARMA / GARCH)</h2>
+    <div class="grid two-col">
+      <label class="checkbox-row">
+        <input type="radio" name="order_mode" value="auto" checked>
+        Auto-Order (AIC, Standard)
+      </label>
+      <label class="checkbox-row">
+        <input type="radio" name="order_mode" value="user">
+        User-Order (p, q wählen)
+      </label>
+    </div>
+    <div id="userOrderPanel" hidden style="margin-top:1rem;">
+      <div class="grid two-col">
+        <div>
+          <h3 class="hint" style="margin-top:0;">ARMA (p, q)</h3>
+          <table class="data-table compact-order-table">
+            <thead><tr><th></th><th>p</th><th>q</th></tr></thead>
+            <tbody>
+              {% for row in order_rows %}
+              <tr>
+                <td><input type="radio" name="arma_order" value="{{ row.p }},{{ row.q }}" {% if row.p == 1 and row.q == 1 %}checked{% endif %}></td>
+                <td>{{ row.p }}</td><td>{{ row.q }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <div>
+          <h3 class="hint" style="margin-top:0;">GARCH (p, q)</h3>
+          <table class="data-table compact-order-table">
+            <thead><tr><th></th><th>p</th><th>q</th></tr></thead>
+            <tbody>
+              {% for row in order_rows %}
+              <tr>
+                <td><input type="radio" name="garch_order" value="{{ row.p }},{{ row.q }}" {% if row.p == 1 and row.q == 1 %}checked{% endif %}></td>
+                <td>{{ row.p }}</td><td>{{ row.q }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
     <h2>3 · Zeiträume</h2>
     <div class="grid three-col">
       <div class="field-row">
         <label for="trainStart">Training Von-Datum</label>
-        <select id="trainStart" name="train_start" required></select>
+        <input type="date" id="trainStart" name="train_start" required>
         <span class="field-error" id="trainStartError" hidden></span>
       </div>
       <div class="field-row">
         <label for="trainEnd">Training Bis-Datum (Cutoff)</label>
-        <select id="trainEnd" name="train_end" required></select>
+        <input type="date" id="trainEnd" name="train_end" required>
         <span class="field-error" id="trainEndError" hidden></span>
       </div>
       <div class="field-row">
@@ -63,7 +109,9 @@
       </div>
     </div>
     <p class="hint">Training Von/Bis: nur Zeitstempel aus der gewählten Zeitreihe, unabhängig wählbar, Von &lt; Bis. Prognose bis darf über das DB-Ende hinausgehen.</p>
-    <div id="tsaWindowChart" class="plotly-chart" style="min-height:320px;margin-top:1rem;"></div>
+    <div class="form-actions" style="margin-top:0.75rem;">
+      <button type="button" class="btn btn-ghost" id="tsaShowWindowBtn">Prognosefenster (Grafik)</button>
+    </div>
   </section>
 
   <section class="card">

@@ -17,7 +17,7 @@
         <select id="seriesA" name="series_a" required>
           <option value="">— wählen —</option>
           {% for s in series %}
-          <option value="{{ s.slug }}" {% if s.slug == 'pdax' %}selected{% endif %}>{{ s.label_de }} ({{ s.slug }})</option>
+          <option value="{{ s.slug }}" data-category-id="{{ s.category_id or '' }}" {% if s.slug == 'pdax' %}selected{% endif %}>{{ s.label_de }} ({{ s.slug }})</option>
           {% endfor %}
         </select>
       </div>
@@ -26,7 +26,7 @@
         <select id="seriesB" name="series_b" required>
           <option value="">— wählen —</option>
           {% for s in series %}
-          <option value="{{ s.slug }}" {% if s.slug == 'erwerbslose' %}selected{% endif %}>{{ s.label_de }} ({{ s.slug }})</option>
+          <option value="{{ s.slug }}" data-category-id="{{ s.category_id or '' }}" {% if s.slug == 'erwerbslose' %}selected{% endif %}>{{ s.label_de }} ({{ s.slug }})</option>
           {% endfor %}
         </select>
       </div>
@@ -65,30 +65,17 @@
     </section>
   </div>
 
-  <section class="card chart-card" id="corrPreviewCard" hidden>
-    <h2>2b · Zeitreihen-Vorschau</h2>
-    <p class="hint">Originalwerte und Trendkomponenten im gewählten Fenster — vor der Korrelationsberechnung.</p>
-    <label class="checkbox-row">
-      <input type="checkbox" id="corrShowReturns">
-      Kontinuierliche Renditen als Zusatz anzeigen
-    </label>
-    <p class="hint" id="corrReturnsHint">Standard: Originalwerte und Trends beider Reihen.</p>
-    <div id="corrPreviewChart" class="plotly-chart"></div>
-    <div id="corrReturnsChart" class="plotly-chart" hidden></div>
-    <p class="hint chart-footnote" id="corrTrendNote"></p>
-  </section>
-
   <section class="card">
     <h2>3 · Analysefenster & Rhythmus</h2>
     <div class="grid three-col">
       <div class="field-row">
         <label for="corrStart">Von-Datum</label>
-        <select id="corrStart" name="start_date" required></select>
+        <input type="date" id="corrStart" name="start_date" required>
         <span class="field-error" id="corrStartError" hidden></span>
       </div>
       <div class="field-row">
         <label for="corrEnd">Bis-Datum</label>
-        <select id="corrEnd" name="end_date" required></select>
+        <input type="date" id="corrEnd" name="end_date" required>
         <span class="field-error" id="corrEndError" hidden></span>
       </div>
       <div class="field-row">
@@ -106,6 +93,14 @@
       </div>
     </div>
     <p class="hint">Von- und Bis-Datum sind unabhängig wählbar (nur gültige Zeitstempel der Schnittmenge). Bedingung: Von-Datum liegt vor Bis-Datum.</p>
+    <div class="form-actions" style="margin-top:0.75rem;">
+      <button type="button" class="btn btn-ghost" id="corrShowPreviewBtn">Zeitreihen-Vorschau (Grafik)</button>
+      <label class="checkbox-row" style="margin:0;">
+        <input type="checkbox" id="corrShowReturns">
+        Renditen in Vorschau
+      </label>
+    </div>
+    <p class="hint" id="corrReturnsHint"></p>
   </section>
 
   {% with form_prefix='corr', section_title='4 · KI-Bericht (optional)' %}

@@ -17,11 +17,18 @@ from tslab.db.engine import (
     get_database_url,
     get_session,
 )
-from tslab.db.models import CorrelationHistory, Observation, TimeSeries, TsaHistory
+from tslab.db.models import Category, CorrelationHistory, Observation, TimeSeries, TsaHistory
 from tslab.services.analysis_mode import (
     AnalysisMode,
     get_analysis_mode_config,
     resolve_study_dates_for_mode,
+)
+from tslab.services.category_service import (
+    create_category,
+    delete_category,
+    get_category,
+    list_categories,
+    update_category,
 )
 from tslab.services.correlation import resolve_correlation_study_dates
 from tslab.services.correlation_job import run_correlation_job
@@ -47,6 +54,7 @@ from tslab.services.entity_tags import (
     suggest_tags,
 )
 from tslab.services.tsa_job import forecast_plot_window_from_payload, run_tsa_job
+from tslab.services.order_selection import parse_order_list
 from tslab.services.report_service import (
     ai_reports_available,
     generate_run_report,
@@ -73,6 +81,7 @@ from tslab.web.csv_preview import (
 )
 from tslab.web.mock_data import FREQUENCY_OPTIONS, SeriesMeta, suggest_run_name
 from tslab.web.output_browser import browse_url_for, output_root, relative_output_path, zip_directory
+from tslab.web.perf import log_timing
 from tslab.web.series_chart import build_pair_chart_payload, build_series_chart_payload
 from tslab.web.tsa_window_preview import build_tsa_window_preview
 
@@ -143,10 +152,12 @@ class TsaRunView:
         return f"/output/zip/{rel}" if rel else None
 
 
-def _ts_to_meta(session, ts: TimeSeries) -> SeriesMeta:
-    dates = available_dates_for_series(session, ts.id)
+def _ts_to_meta(session, ts: TimeSeries, *, dates: list[date] | None = None) -> SeriesMeta:
+    if dates is None:
+        dates = available_dates_for_series(session, ts.id)
     freq_id, freq_label = detect_frequency_from_dates(dates) if dates else ("MS", "Monatlich")
     tags = tuple(list_tags(session, ENTITY_SERIES, ts.id))
+    cat_name = ts.category.name if ts.category else None
     return SeriesMeta(
         slug=ts.slug,
         name=ts.name,
@@ -159,6 +170,8 @@ def _ts_to_meta(session, ts: TimeSeries) -> SeriesMeta:
         source_file=ts.source_file,
         id=ts.id,
         tags=tags,
+        category_id=ts.category_id,
+        category_name=cat_name,
     )
 
 
@@ -275,11 +288,19 @@ class WebBackend:
             return None
         return get_database_kind()
 
-    def list_series(self, *, tag: str | None = None, include_hidden: bool = False) -> list[SeriesMeta]:
+    def list_series(
+        self,
+        *,
+        tag: str | None = None,
+        category_id: int | None = None,
+        include_hidden: bool = False,
+    ) -> list[SeriesMeta]:
         if self.uses_mock:
             series = list(mock.MOCK_SERIES)
             if tag:
                 series = [s for s in series if tag in s.tags]
+            if category_id is not None:
+                series = [s for s in series if s.category_id == category_id]
             return series
         with get_session() as session:
             rows = list_series(session)
@@ -288,6 +309,8 @@ class WebBackend:
             if tag:
                 ids = set(entity_ids_with_tag(session, ENTITY_SERIES, tag))
                 rows = [ts for ts in rows if ts.id in ids]
+            if category_id is not None:
+                rows = [ts for ts in rows if ts.category_id == category_id]
             return [_ts_to_meta(session, ts) for ts in rows]
 
     def series_by_slug(self, slug: str) -> SeriesMeta | None:
@@ -298,74 +321,83 @@ class WebBackend:
             return _ts_to_meta(session, ts) if ts else None
 
     def series_dates(self, slug: str) -> list[str]:
-        if self.uses_mock:
-            s = mock.series_by_slug(slug)
-            if s is None:
-                return []
-            dates: list[date] = []
-            d = s.first_date
-            while d <= s.last_date:
-                dates.append(d)
-                if d.month == 12:
-                    d = date(d.year + 1, 1, 1)
-                else:
-                    d = date(d.year, d.month + 1, 1)
-            return [x.isoformat() for x in dates]
+        with log_timing("series.dates", slug=slug):
+            if self.uses_mock:
+                s = mock.series_by_slug(slug)
+                if s is None:
+                    return []
+                dates: list[date] = []
+                d = s.first_date
+                while d <= s.last_date:
+                    dates.append(d)
+                    if d.month == 12:
+                        d = date(d.year + 1, 1, 1)
+                    else:
+                        d = date(d.year, d.month + 1, 1)
+                return [x.isoformat() for x in dates]
 
-        with get_session() as session:
-            ts = get_series_by_slug(session, slug)
-            if ts is None:
-                return []
-            return [d.isoformat() for d in available_dates_for_series(session, ts.id)]
+            with get_session() as session:
+                ts = get_series_by_slug(session, slug)
+                if ts is None:
+                    return []
+                return [d.isoformat() for d in available_dates_for_series(session, ts.id)]
+
+    def series_meta(self, slug: str) -> dict | None:
+        """Leichtgewichtige Serie ohne Datumsliste."""
+        s = self.series_by_slug(slug)
+        if s is None:
+            return None
+        return mock.series_to_dict(s)
 
     def _overlap_context(
         self, slug_a: str, slug_b: str, *, frequency: str | None = None
     ) -> dict | None:
-        if self.uses_mock:
-            data = mock.pair_overlap(slug_a, slug_b)
-            return data
+        with log_timing("overlap.context", a=slug_a, b=slug_b, frequency=frequency):
+            if self.uses_mock:
+                return mock.pair_overlap(slug_a, slug_b)
 
-        with get_session() as session:
-            ts_a = get_series_by_slug(session, slug_a)
-            ts_b = get_series_by_slug(session, slug_b)
-            if (
-                ts_a is None
-                or ts_b is None
-                or not ts_a.first_date
-                or not ts_b.first_date
-                or not ts_b.last_date
-            ):
-                return None
+            with get_session() as session:
+                ts_a = get_series_by_slug(session, slug_a)
+                ts_b = get_series_by_slug(session, slug_b)
+                if (
+                    ts_a is None
+                    or ts_b is None
+                    or not ts_a.first_date
+                    or not ts_b.first_date
+                    or not ts_b.last_date
+                ):
+                    return None
 
-            dates_a = available_dates_for_series(session, ts_a.id)
-            dates_b = available_dates_for_series(session, ts_b.id)
-            ctx = compute_pair_overlap(
-                dates_a,
-                dates_b,
-                first_a=ts_a.first_date,
-                last_a=ts_a.last_date or ts_a.first_date,
-                count_a=ts_a.observation_count or len(dates_a),
-                first_b=ts_b.first_date,
-                last_b=ts_b.last_date or ts_b.first_date,
-                count_b=ts_b.observation_count or len(dates_b),
-                slug_a=slug_a,
-                slug_b=slug_b,
-                label_a=ts_a.name,
-                label_b=ts_b.name,
-                frequency=frequency,
-            )
-            if ctx is None:
-                return None
+                with log_timing("overlap.dates", a=slug_a, b=slug_b):
+                    dates_a = available_dates_for_series(session, ts_a.id)
+                    dates_b = available_dates_for_series(session, ts_b.id)
+                ctx = compute_pair_overlap(
+                    dates_a,
+                    dates_b,
+                    first_a=ts_a.first_date,
+                    last_a=ts_a.last_date or ts_a.first_date,
+                    count_a=ts_a.observation_count or len(dates_a),
+                    first_b=ts_b.first_date,
+                    last_b=ts_b.last_date or ts_b.first_date,
+                    count_b=ts_b.observation_count or len(dates_b),
+                    slug_a=slug_a,
+                    slug_b=slug_b,
+                    label_a=ts_a.name,
+                    label_b=ts_b.name,
+                    frequency=frequency,
+                )
+                if ctx is None:
+                    return None
 
-            a_dict = mock.series_to_dict(_ts_to_meta(session, ts_a))
-            b_dict = mock.series_to_dict(_ts_to_meta(session, ts_b))
-            return {
-                "series_a": a_dict,
-                "series_b": b_dict,
-                "suggested_run_name": suggest_run_name(slug_a, slug_b),
-                "frequencies": FREQUENCY_OPTIONS,
-                **ctx,
-            }
+                a_dict = mock.series_to_dict(_ts_to_meta(session, ts_a, dates=dates_a))
+                b_dict = mock.series_to_dict(_ts_to_meta(session, ts_b, dates=dates_b))
+                return {
+                    "series_a": a_dict,
+                    "series_b": b_dict,
+                    "suggested_run_name": suggest_run_name(slug_a, slug_b),
+                    "frequencies": FREQUENCY_OPTIONS,
+                    **ctx,
+                }
 
     def overlap_dates(
         self, slug_a: str, slug_b: str, *, frequency: str | None = None
@@ -478,8 +510,72 @@ class WebBackend:
     ) -> dict:
         return generate_run_report(output_dir, model_id=model_id, run_type=run_type)
 
+    def list_categories(self) -> list[dict]:
+        if self.uses_mock:
+            return []
+        with get_session() as session:
+            return [
+                {
+                    "id": c.id,
+                    "name": c.name,
+                    "series_count": session.scalar(
+                        select(func.count(TimeSeries.id)).where(TimeSeries.category_id == c.id)
+                    )
+                    or 0,
+                }
+                for c in list_categories(session)
+            ]
+
+    def create_category_entry(self, name: str) -> dict:
+        clean = name.strip()
+        if not clean:
+            raise ValueError("Kategoriename fehlt.")
+        if self.uses_mock:
+            return {"ok": True, "id": 1, "name": clean}
+        with get_session() as session:
+            row = create_category(session, clean)
+            return {"ok": True, "id": row.id, "name": row.name}
+
+    def update_category_entry(self, category_id: int, name: str) -> dict:
+        if self.uses_mock:
+            return {"ok": True, "id": category_id, "name": name.strip()}
+        with get_session() as session:
+            row = update_category(session, category_id, name)
+            return {"ok": True, "id": row.id, "name": row.name}
+
+    def delete_category_entry(self, category_id: int) -> dict:
+        if self.uses_mock:
+            return {"ok": True}
+        with get_session() as session:
+            delete_category(session, category_id)
+            return {"ok": True}
+
+    def update_series_meta(
+        self, slug: str, *, name: str, category_id: int | None = None
+    ) -> dict:
+        clean = name.strip()
+        if not clean:
+            raise ValueError("Name darf nicht leer sein.")
+        if self.uses_mock:
+            return {"ok": True, "message": "Mock: nicht gespeichert"}
+        with get_session() as session:
+            ts = get_series_by_slug(session, slug)
+            if ts is None:
+                raise ValueError(f"Zeitreihe '{slug}' nicht gefunden.")
+            if category_id is not None and get_category(session, category_id) is None:
+                raise ValueError("Kategorie nicht gefunden.")
+            ts.name = clean
+            ts.category_id = category_id
+            session.commit()
+            session.refresh(ts)
+            return {"ok": True, "series": mock.series_to_dict(_ts_to_meta(session, ts))}
+
     def list_correlation_history(
-        self, *, tag: str | None = None, include_hidden: bool = False
+        self,
+        *,
+        tag: str | None = None,
+        category_id: int | None = None,
+        include_hidden: bool = False,
     ) -> list[CorrelationRunView]:
         if self.uses_mock:
             runs = [
@@ -513,6 +609,10 @@ class WebBackend:
                 tags = tuple(list_tags(session, ENTITY_CORRELATION, r.id))
                 if tag and tag not in tags:
                     continue
+                if category_id is not None:
+                    ts_a = get_series_by_slug(session, r.series_a_slug)
+                    if ts_a is None or ts_a.category_id != category_id:
+                        continue
                 views.append(
                     CorrelationRunView(
                         id=r.id,
@@ -533,7 +633,11 @@ class WebBackend:
             return views
 
     def list_tsa_history(
-        self, *, tag: str | None = None, include_hidden: bool = False
+        self,
+        *,
+        tag: str | None = None,
+        category_id: int | None = None,
+        include_hidden: bool = False,
     ) -> list[TsaRunView]:
         if self.uses_mock:
             views = [
@@ -568,6 +672,10 @@ class WebBackend:
                 tags = tuple(list_tags(session, ENTITY_TSA, r.id))
                 if tag and tag not in tags:
                     continue
+                if category_id is not None:
+                    ts = get_series_by_slug(session, r.series_slug)
+                    if ts is None or ts.category_id != category_id:
+                        continue
                 try:
                     models = json.loads(r.models)
                 except json.JSONDecodeError:
@@ -861,6 +969,9 @@ class WebBackend:
                 forecast_end=forecast_end,
                 models=models,
                 plot_window=plot_window,
+                order_mode=str(payload.get("order_mode") or "auto"),
+                arma_user_orders=parse_order_list(payload.get("arma_order")),
+                garch_user_orders=parse_order_list(payload.get("garch_order")),
             )
 
         out = str(job.output_dir)

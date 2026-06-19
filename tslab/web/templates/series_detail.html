@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ series.label_de }}{% endblock %}
 {% block page_title %}{{ series.label_de }}{% endblock %}
-{% block page_subtitle %}Originalwerte und Trendkomponente · {{ series.slug }}{% endblock %}
+{% block page_subtitle %}Bearbeiten · {{ series.slug }}{% endblock %}
 
 {% block head %}
 <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
@@ -10,13 +10,34 @@
 {% block content %}
 <div class="grid two-col">
   <section class="card">
-    <h2>Metadaten</h2>
-    <dl class="meta-dl">
-      <dt>Slug</dt><dd class="mono">{{ series.slug }}</dd>
+    <h2>Stammdaten</h2>
+    <form id="seriesEditForm">
+      <div class="field-row">
+        <label for="seriesNameEdit">Anzeigename</label>
+        <input type="text" id="seriesNameEdit" name="name" value="{{ series.label_de }}" required maxlength="120">
+      </div>
+      <div class="field-row">
+        <label>Slug (fest)</label>
+        <input type="text" class="mono" value="{{ series.slug }}" disabled>
+      </div>
+      <div class="field-row">
+        <label for="seriesCategory">Kategorie</label>
+        <select id="seriesCategory" name="category_id">
+          <option value="">— keine —</option>
+          {% for c in categories %}
+          <option value="{{ c.id }}" {% if series.category_id == c.id %}selected{% endif %}>{{ c.name }}</option>
+          {% endfor %}
+        </select>
+        <p class="hint"><a href="{{ url_for('categories_page', return_to=request.path) }}">Neue Kategorie anlegen</a></p>
+      </div>
+      <div class="form-actions">
+        <button type="submit" class="btn btn-primary">Speichern</button>
+      </div>
+    </form>
+    <dl class="meta-dl" style="margin-top:1rem;">
       <dt>Zeitraum</dt><dd>{{ series.first_date }} → {{ series.last_date }}</dd>
       <dt>Beobachtungen</dt><dd>{{ series.observation_count }}</dd>
       <dt>Rhythmus</dt><dd>{{ series.frequency_label }}</dd>
-      <dt>Quelle</dt><dd>{{ series.source_file or '—' }}</dd>
     </dl>
     <p class="hint"><a href="{{ url_for('series_page') }}">← Alle Zeitreihen</a></p>
   </section>
@@ -27,13 +48,11 @@
       <input type="checkbox" id="showReturns">
       Kontinuierliche Renditen als Zusatz anzeigen
     </label>
-    <p class="hint" id="returnsHint">Standard: Originalwerte + Trend. Renditen nur optional.</p>
   </section>
 </div>
 
 <section class="card chart-card">
   <h2>Interaktive Grafik</h2>
-  <p class="hint" id="chartHint">Mit der Maus über Punkte fahren — Datum und Wert werden angezeigt.</p>
   <div id="seriesChart" class="plotly-chart"></div>
   <p class="hint chart-footnote" id="trendNote"></p>
 </section>
@@ -42,6 +61,8 @@
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/charts.js') }}"></script>
 <script>
+  TSLab.initCore();
+  TSLab.initSeriesEdit({{ series.slug | tojson }});
   TSLabCharts.initSeriesDetail({{ series.slug | tojson }});
 </script>
 {% endblock %}

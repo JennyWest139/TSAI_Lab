@@ -12,6 +12,7 @@ from sqlalchemy import delete, or_, select
 from sqlalchemy.orm import Session
 
 from tslab.db.models import CorrelationHistory, Observation, TimeSeries, TsaHistory, UploadHistory
+from tslab.services.category_service import series_has_protected_category
 from tslab.services.entity_tags import (
     ENTITY_CORRELATION,
     ENTITY_SERIES,
@@ -45,7 +46,9 @@ def preview_delete_series(session: Session, slug: str, scope: DeleteScope) -> De
     if ts is None:
         raise LookupError(f"Zeitreihe '{slug}' nicht gefunden.")
     tags = list_tags(session, ENTITY_SERIES, ts.id)
-    blocked = has_protected_tag(session, ENTITY_SERIES, ts.id)
+    blocked = has_protected_tag(session, ENTITY_SERIES, ts.id) or series_has_protected_category(
+        session, ts.id
+    )
     actions: list[str] = []
     if scope == "ui":
         actions.append("Aus Listen ausblenden (hidden_at)")

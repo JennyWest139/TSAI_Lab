@@ -114,10 +114,11 @@ body {
 .nav { flex: 1; overflow-y: auto; }
 .nav-section {
   padding: 1rem 1.25rem 0.35rem;
-  font-size: 0.68rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  opacity: 0.55;
+  font-size: 1.36rem;
+  text-transform: none;
+  letter-spacing: 0.02em;
+  font-weight: 600;
+  opacity: 0.72;
 }
 
 .nav-link {
@@ -568,6 +569,10 @@ input:focus, select:focus {
 .modal-card {
   max-width: 28rem;
   width: 100%;
+}
+
+.modal-wide {
+  max-width: min(96vw, 56rem);
 }
 
 .btn-sm {

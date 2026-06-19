@@ -17,6 +17,7 @@ _COLUMN_MIGRATIONS: tuple[tuple[str, str, str, str], ...] = (
     ("correlation_history", "analysis_mode", "analysis_mode VARCHAR(32)", "analysis_mode VARCHAR(32)"),
     ("correlation_history", "run_name", "run_name VARCHAR(256)", "run_name VARCHAR(256)"),
     ("correlation_history", "hidden_at", "hidden_at TIMESTAMPTZ", "hidden_at DATETIME"),
+    ("time_series", "category_id", "category_id INTEGER REFERENCES categories(id)", "category_id INTEGER"),
 )
 
 
@@ -54,3 +55,16 @@ def migrate_schema() -> None:
     engine = get_engine()
     Base.metadata.create_all(engine)
     migrate_columns()
+    _seed_categories()
+
+
+def _seed_categories() -> None:
+    try:
+        from sqlalchemy.orm import Session
+
+        from tslab.services.category_service import seed_default_categories
+
+        with Session(get_engine()) as session:
+            seed_default_categories(session)
+    except Exception as exc:
+        _log.warning("Kategorie-Seed uebersprungen: %s", exc)

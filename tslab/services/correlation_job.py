@@ -16,6 +16,7 @@ from tslab.services.correlation import (
     load_pair_for_correlation,
     run_correlation,
 )
+from tslab.services.output_naming import correlation_folder_name
 
 
 @dataclass(frozen=True)
@@ -97,11 +98,14 @@ def run_correlation_job(
         frequency=frequency,
     )
 
-    label = f"{result.study.start_date.date()}_to_{result.study.end_date.date()}"
-    out = (
-        (output_root or resolve_output_dir())
-        / f"correlation_{mode_config.slug}_{result.series_a}_vs_{result.series_b}_{label}"
+    label = correlation_folder_name(
+        mode_slug=mode_config.slug,
+        series_a=result.series_a,
+        series_b=result.series_b,
+        start_date=result.study.start_date.date(),
+        end_date=result.study.end_date.date(),
     )
+    out = (output_root or resolve_output_dir()) / label
     out.mkdir(parents=True, exist_ok=True)
 
     result.table.to_csv(out / "lag_correlations.csv", index=False, encoding="utf-8-sig")

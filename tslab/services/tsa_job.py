@@ -10,8 +10,9 @@ from sqlalchemy.orm import Session
 
 from tslab.config_loader import resolve_output_dir
 from tslab.db.models import TsaHistory
+from tslab.services.forecast_store import persist_tsa_output_forecasts
 from tslab.plots.series_display import SeriesDisplay
-from tslab.plots.time_series_plots import plot_residuals, plot_series
+from tslab.plots.time_series_plots import plot_decomposition, plot_residuals, plot_series
 from tslab.plots.tsa_plots import plot_conditional_volatility, plot_standardized_residuals
 from tslab.services.analysis_mode import AnalysisMode, AnalysisModeConfig, returns_display
 from tslab.services.forecast_plot_service import (
@@ -41,6 +42,8 @@ from tslab.services.thesis_coefficients import (
     format_coefficient_abgleich,
     load_thesis_reference,
 )
+from tslab.services.output_naming import tsa_folder_name
+from tslab.services.order_selection import parse_order_list, resolve_orders
 from tslab.services.tsa_context import TSAContext, load_tsa_context
 
 
@@ -70,6 +73,28 @@ def _forecast_ylabel(ctx: TSAContext) -> str:
     if "diff(ln(PDAX))" in disp.value_axis:
         return "kont. Renditen"
     return disp.value_axis
+
+
+def _run_decomposition(
+    ctx: TSAContext, out: Path, *, model: str, series_slug: str
+) -> None:
+    """Additive oder multiplikative Saisonzerlegung auf Trainingsniveau."""
+    y = ctx.train_prices.dropna()
+    tag = "decomp_additive" if model == "additive" else "decomp_multiplicative"
+    model_dir = out / tag
+    model_dir.mkdir(parents=True, exist_ok=True)
+    label = "Additive" if model == "additive" else "Multiplikative"
+    display = SeriesDisplay(
+        short_name=f"{label} Zerlegung",
+        value_axis=series_slug.upper(),
+        data_basis=f"Training {ctx.study.analysis_label}",
+    )
+    plot_decomposition(y, model_dir / f"{tag}.png", display, model=model)
+    (model_dir / "summary.txt").write_text(
+        f"Saisonale Zerlegung ({model})\nZeitreihe: {series_slug}\n"
+        f"Training: {ctx.study.analysis_label}\nBeobachtungen: {len(y)}",
+        encoding="utf-8",
+    )
 
 
 def _std_residual_display(display: SeriesDisplay, model_label: str) -> SeriesDisplay:
@@ -461,7 +486,7 @@ def _write_coefficient_abgleich(
 
 def _normalize_models(models: set[str] | list[str] | None) -> set[str]:
     if not models:
-        return {"arma", "garch", "arma-garch"}
+        return {"arma-garch"}
     return {str(m).strip().lower() for m in models if str(m).strip()}
 
 
@@ -476,6 +501,9 @@ def run_tsa_job(
     models: set[str] | list[str] | None = None,
     arma_order: tuple[int, int] = (1, 1),
     garch_order: tuple[int, int] = (1, 1),
+    order_mode: str = "auto",
+    arma_user_orders: list[tuple[int, int]] | None = None,
+    garch_user_orders: list[tuple[int, int]] | None = None,
     plot_window: ForecastPlotWindow | None = None,
     output_root: Path | None = None,
     run_coefficient_abgleich: bool = True,
@@ -483,8 +511,6 @@ def run_tsa_job(
 ) -> TsaJobResult:
     """Fuehrt TSA aus und schreibt Output-Artefakte."""
     model_set = _normalize_models(models)
-    arma_p, arma_q = arma_order
-    garch_p, garch_q = garch_order
     eff_window = plot_window or ForecastPlotWindow.from_defaults()
 
     ctx = load_tsa_context(
@@ -497,10 +523,34 @@ def run_tsa_job(
         plot_window=eff_window,
     )
 
-    out = (output_root or resolve_output_dir()) / f"tsa_{ctx.label}"
+    arma_order, garch_order = resolve_orders(
+        order_mode=order_mode,
+        y=ctx.train_lr,
+        mode_config=mode_config,
+        arma_user=arma_user_orders,
+        garch_user=garch_user_orders,
+        default_arma=arma_order,
+        default_garch=garch_order,
+    )
+    arma_p, arma_q = arma_order
+    garch_p, garch_q = garch_order
+
+    folder = tsa_folder_name(
+        mode_slug=mode_config.slug,
+        series_slug=series_slug,
+        train_start=ctx.study.start_date.date(),
+        train_end=ctx.study.cutoff.date(),
+    )
+    out = (output_root or resolve_output_dir()) / folder
     out.mkdir(parents=True, exist_ok=True)
 
     models_run: list[str] = []
+    if "decomp-additive" in model_set or "decomp_additive" in model_set:
+        _run_decomposition(ctx, out, model="additive", series_slug=series_slug)
+        models_run.append("decomp-additive")
+    if "decomp-multiplicative" in model_set or "decomp_multiplicative" in model_set:
+        _run_decomposition(ctx, out, model="multiplicative", series_slug=series_slug)
+        models_run.append("decomp-multiplicative")
     if "arma" in model_set:
         _run_arma(ctx, out, arma_p, arma_q, eff_window)
         models_run.append("arma")
@@ -538,6 +588,12 @@ def run_tsa_job(
         session.commit()
         session.refresh(row)
         history_id = row.id
+        try:
+            persist_tsa_output_forecasts(
+                session, tsa_history_id=history_id, output_dir=out, models_run=models_run
+            )
+        except Exception:
+            pass
 
     return TsaJobResult(
         output_dir=out,

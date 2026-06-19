@@ -22,6 +22,8 @@ class SeriesMeta:
     source_file: str | None = None
     id: int | None = None
     tags: tuple[str, ...] = ()
+    category_id: int | None = None
+    category_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -164,18 +166,28 @@ def suggest_run_name(slug_a: str, slug_b: str) -> str:
 
 TSA_MODELS = [
     {
+        "id": "decomp-additive",
+        "label": "Additive Zerlegung",
+        "description": "Trend, Saison, Rest (statsmodels seasonal_decompose)",
+    },
+    {
+        "id": "decomp-multiplicative",
+        "label": "Multiplikative Zerlegung",
+        "description": "Multiplikative Saisonzerlegung (nur positive Werte)",
+    },
+    {
         "id": "arma",
-        "label": "ARMA(1,1)",
-        "description": "Mittelwertmodell (statsmodels), Residuen-Diagnostik",
+        "label": "ARMA",
+        "description": "Mittelwertmodell (statsmodels), Ordung per Auto/User-Order",
     },
     {
         "id": "garch",
-        "label": "GARCH(1,1)",
+        "label": "GARCH",
         "description": "Volatilitaet mit Quantilbaendern (arch)",
     },
     {
         "id": "arma-garch",
-        "label": "ARMA(1,1)-GARCH(1,1)",
+        "label": "ARMA-GARCH",
         "description": "Kombiniertes Modell (Diplomarbeit-Stil)",
     },
 ]
@@ -198,7 +210,7 @@ def series_to_dict(s: SeriesMeta) -> dict:
     d["first_date"] = s.first_date.isoformat()
     d["last_date"] = s.last_date.isoformat()
     d["tags"] = list(s.tags)
-    d["has_reporting"] = "Reporting" in s.tags
+    d["has_reporting"] = "Reporting" in s.tags or s.category_name == "Reporting"
     return d
 
 

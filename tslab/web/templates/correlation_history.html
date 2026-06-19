@@ -8,6 +8,12 @@
   <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;">
     <h2>Läufe</h2>
     <div style="display:flex;gap:0.5rem;align-items:center;">
+      <select id="categoryFilter">
+        <option value="">Alle Kategorien</option>
+        {% for c in categories %}
+        <option value="{{ c.id }}" {% if active_category_id == c.id %}selected{% endif %}>{{ c.name }}</option>
+        {% endfor %}
+      </select>
       <input type="text" id="tagFilter" placeholder="Tag filtern" list="tagSuggestions">
       <datalist id="tagSuggestions"></datalist>
       <a href="{{ url_for('correlation_page') }}" class="btn btn-ghost">Neue Korrelation</a>
@@ -69,6 +75,13 @@
       document.querySelectorAll("#corrHistoryTable tbody tr[data-tags]").forEach((row) => {
         row.hidden = !!(tag && !(row.dataset.tags || "").toLowerCase().split(",").map((x) => x.trim()).includes(tag));
       });
+    });
+    document.getElementById("categoryFilter")?.addEventListener("change", (e) => {
+      const v = e.target.value;
+      const url = new URL(window.location.href);
+      if (v) url.searchParams.set("category_id", v);
+      else url.searchParams.delete("category_id");
+      window.location.href = url.toString();
     });
   })();
 </script>

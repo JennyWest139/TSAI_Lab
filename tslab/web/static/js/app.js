@@ -142,6 +142,49 @@ const TSLab = (() => {
     bar.style.width = `${Math.max(2, width)}%`;
   }
 
+  function debounce(fn, ms = 250) {
+    let t;
+    return (...args) => {
+      clearTimeout(t);
+      t = setTimeout(() => fn(...args), ms);
+    };
+  }
+
+  function createChartModal() {
+    const modal = document.getElementById("chartModal");
+    if (!modal) return null;
+    const titleEl = document.getElementById("chartModalTitle");
+    const body = document.getElementById("chartModalBody");
+    modal.querySelectorAll("[data-chart-close]").forEach((el) => {
+      el.addEventListener("click", () => {
+        modal.hidden = true;
+        if (body) body.innerHTML = "";
+      });
+    });
+    return {
+      open(title, renderFn) {
+        if (titleEl) titleEl.textContent = title;
+        if (body) {
+          body.innerHTML =
+            '<div id="chartModalPlot" class="plotly-chart" style="min-height:420px"></div><p class="hint chart-footnote" id="chartModalNote"></p>';
+          modal.hidden = false;
+          renderFn("chartModalPlot", "chartModalNote");
+        }
+      },
+    };
+  }
+
+  const chartModal = createChartModal();
+
+  function snapToValidDate(iso, dates) {
+    if (!iso || !dates?.length) return iso;
+    if (dates.includes(iso)) return iso;
+    for (const d of dates) {
+      if (d >= iso) return d;
+    }
+    return dates[dates.length - 1];
+  }
+
   function fillDateSelect(selectEl, dates, selected, fallback = "first") {
     if (!selectEl) return;
     selectEl.innerHTML = "";
@@ -159,10 +202,52 @@ const TSLab = (() => {
   }
 
   /**
-   * Zwei unabhängige Auswahlfelder — nur Zeitstempel aus dates[].
-   * Validierung: von < bis (beide in dates).
+   * Datumsfelder (type=date) — gültige Werte nur aus dates[] (im Speicher, nicht als Dropdown).
    */
+  function bindIndependentDateInputs(vonEl, bisEl, dates, suggestedVon, suggestedBis, onChange) {
+    if (!vonEl || !bisEl || !dates || dates.length < 2) return () => false;
+
+    vonEl.min = bisEl.min = dates[0];
+    vonEl.max = bisEl.max = dates[dates.length - 1];
+    vonEl.value = snapToValidDate(suggestedVon || dates[0], dates);
+    bisEl.value = snapToValidDate(suggestedBis || dates[dates.length - 1], dates);
+
+    const validate = () => {
+      let von = snapToValidDate(vonEl.value, dates);
+      let bis = snapToValidDate(bisEl.value, dates);
+      if (vonEl.value !== von) vonEl.value = von;
+      if (bisEl.value !== bis) bisEl.value = bis;
+      const ok = dates.includes(von) && dates.includes(bis) && von < bis;
+
+      vonEl.classList.toggle("field-invalid", !ok);
+      bisEl.classList.toggle("field-invalid", !ok);
+
+      const errVon = document.getElementById(`${vonEl.id}Error`);
+      const errBis = document.getElementById(`${bisEl.id}Error`);
+      const msg = ok ? "" : "Von-Datum muss vor Bis-Datum liegen (gültige Zeitstempel).";
+      if (errVon) {
+        errVon.hidden = ok;
+        errVon.textContent = msg;
+      }
+      if (errBis) {
+        errBis.hidden = ok;
+        errBis.textContent = msg;
+      }
+
+      onChange?.(ok, von, bis);
+      return ok;
+    };
+
+    vonEl.onchange = validate;
+    bisEl.onchange = validate;
+    validate();
+    return validate;
+  }
+
   function bindIndependentDateRange(vonEl, bisEl, dates, suggestedVon, suggestedBis, onChange) {
+    if (vonEl?.type === "date" || bisEl?.type === "date") {
+      return bindIndependentDateInputs(vonEl, bisEl, dates, suggestedVon, suggestedBis, onChange);
+    }
     if (!vonEl || !bisEl || !dates || dates.length < 2) return () => false;
 
     fillDateSelect(vonEl, dates, suggestedVon || dates[0], "first");
@@ -224,13 +309,29 @@ const TSLab = (() => {
     const freqSelect = document.getElementById("frequency");
     const modeSelect = document.getElementById("analysisMode");
     const showReturnsEl = document.getElementById("corrShowReturns");
-    const previewCard = document.getElementById("corrPreviewCard");
-    const returnsChart = document.getElementById("corrReturnsChart");
-    const trendNote = document.getElementById("corrTrendNote");
+    const previewBtn = document.getElementById("corrShowPreviewBtn");
     const form = document.getElementById("correlationForm");
     let validateDates = () => false;
     let gStart;
     let gEnd;
+    let overlapDates = [];
+
+    function filterSeriesBByA() {
+      const catA = selA?.selectedOptions?.[0]?.dataset?.categoryId || "";
+      if (!selB) return;
+      Array.from(selB.options).forEach((opt) => {
+        if (!opt.value) return;
+        if (!catA) {
+          opt.hidden = false;
+          return;
+        }
+        opt.hidden = opt.dataset.categoryId !== catA;
+      });
+      if (selB.selectedOptions[0]?.hidden) {
+        const first = Array.from(selB.options).find((o) => o.value && !o.hidden);
+        if (first) selB.value = first.value;
+      }
+    }
 
     function refreshWindowBar() {
       updateWindowBar(
@@ -240,47 +341,40 @@ const TSLab = (() => {
         gStart,
         gEnd
       );
-      refreshPreview();
     }
 
-    async function refreshPreview() {
+    async function openCorrPreview() {
       const a = selA?.value;
       const b = selB?.value;
       const start = vonSelect?.value;
       const end = bisSelect?.value;
       if (!a || !b || a === b || !start || !end || start >= end) {
-        if (previewCard) previewCard.hidden = true;
+        toast("Bitte Reihen und gültiges Datumsfenster wählen.");
         return;
       }
-      if (!window.TSLabCharts || !window.Plotly) return;
-
+      if (!window.TSLabCharts || !window.Plotly || !chartModal) {
+        toast("Grafik nicht verfügbar.");
+        return;
+      }
+      const t0 = performance.now();
       const params = new URLSearchParams({ a, b, start, end });
       if (showReturnsEl?.checked) params.set("show_returns", "1");
       if (modeSelect?.value) params.set("analysis_mode", modeSelect.value);
       if (freqSelect?.value) params.set("frequency", freqSelect.value);
-
       try {
         const res = await fetch(`/api/correlation/preview?${params}`);
         if (!res.ok) throw new Error("Vorschau nicht verfügbar");
         const data = await res.json();
-        if (previewCard) previewCard.hidden = false;
-        TSLabCharts.renderPairChart("corrPreviewChart", data);
-        if (trendNote) {
-          trendNote.textContent = `${data.series_a.trend_note} · ${data.series_b.trend_note}`;
-        }
-        const returnsHint = document.getElementById("corrReturnsHint");
-        if (returnsHint) {
-          returnsHint.textContent = data.returns_recommended
-            ? "Optional: kontinuierliche Renditen für Kursindizes."
-            : "Renditen nur per Checkbox — für diese Paarung kein Standard.";
-        }
-        if (returnsChart) {
-          const hasReturns = !!(data.returns_a?.dates?.length);
-          returnsChart.hidden = !hasReturns;
-          if (hasReturns) TSLabCharts.renderReturnsPairChart("corrReturnsChart", data);
-        }
+        console.info(`[tslab] correlation preview ${(performance.now() - t0).toFixed(0)} ms`);
+        chartModal.open("Zeitreihen-Vorschau", (plotId, noteId) => {
+          TSLabCharts.renderPairChart(plotId, data);
+          const note = document.getElementById(noteId);
+          if (note) {
+            note.textContent = `${data.series_a.trend_note} · ${data.series_b.trend_note}`;
+          }
+        });
       } catch {
-        if (previewCard) previewCard.hidden = true;
+        toast("Vorschau konnte nicht geladen werden.");
       }
     }
 
@@ -320,6 +414,7 @@ const TSLab = (() => {
         data.suggested_end,
         () => refreshWindowBar()
       );
+      overlapDates = dates;
 
       const meta = document.getElementById("overlapMeta");
       if (meta) {
@@ -336,26 +431,31 @@ const TSLab = (() => {
       refreshWindowBar();
     }
 
-    async function update() {
+    async function updateOverlap() {
       const a = selA?.value;
       const b = selB?.value;
       if (!a || !b || a === b) return;
+      filterSeriesBByA();
+      const t0 = performance.now();
       try {
         renderOverlap(await fetchOverlap(a, b, freqSelect?.value || null));
+        console.info(`[tslab] overlap loaded ${(performance.now() - t0).toFixed(0)} ms`);
       } catch {
         toast("Keine gemeinsame Datenbasis für diese Paarung.");
       }
     }
 
-    selA?.addEventListener("change", update);
-    selB?.addEventListener("change", update);
-    freqSelect?.addEventListener("change", update);
-    showReturnsEl?.addEventListener("change", refreshPreview);
-    modeSelect?.addEventListener("change", refreshPreview);
-    document.getElementById("themeToggle")?.addEventListener("click", () => {
-      setTimeout(refreshPreview, 50);
+    const updateOverlapDebounced = debounce(updateOverlap, 200);
+
+    selA?.addEventListener("change", () => {
+      filterSeriesBByA();
+      updateOverlapDebounced();
     });
-    update();
+    selB?.addEventListener("change", updateOverlapDebounced);
+    freqSelect?.addEventListener("change", updateOverlapDebounced);
+    previewBtn?.addEventListener("click", openCorrPreview);
+    filterSeriesBByA();
+    updateOverlap();
 
     form?.addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -396,8 +496,15 @@ const TSLab = (() => {
     async function updateMeta() {
       const slug = sel?.value;
       if (!slug) return;
-      const s = await loadSeriesMeta(slug);
-      const dates = s.dates || [];
+      const t0 = performance.now();
+      const [metaRes, datesRes] = await Promise.all([
+        fetch(`/api/series/${slug}/meta`),
+        fetch(`/api/series/${slug}/dates`),
+      ]);
+      const s = await metaRes.json();
+      const datesPayload = await datesRes.json();
+      const dates = datesPayload.dates || [];
+      console.info(`[tslab] series meta+dates ${(performance.now() - t0).toFixed(0)} ms (${dates.length} n)`);
 
       if (metaBox) {
         metaBox.innerHTML = `
@@ -430,13 +537,25 @@ const TSLab = (() => {
 
     sel?.addEventListener("change", () => {
       updateMeta();
-      refreshWindowChart();
     });
     updateMeta();
 
-    async function refreshWindowChart() {
-      const chartEl = document.getElementById("tsaWindowChart");
-      if (!chartEl || !window.TSLabCharts?.renderTsaWindowChart) return;
+    function syncOrderPanel() {
+      const panel = document.getElementById("userOrderPanel");
+      const mode = document.querySelector('input[name="order_mode"]:checked')?.value;
+      if (panel) panel.hidden = mode !== "user";
+    }
+    document.querySelectorAll('input[name="order_mode"]').forEach((el) => {
+      el.addEventListener("change", syncOrderPanel);
+    });
+    syncOrderPanel();
+
+    async function openTsaWindowChart() {
+      if (!chartModal || !window.TSLabCharts?.renderTsaWindowChart) {
+        toast("Grafik nicht verfügbar.");
+        return;
+      }
+      const t0 = performance.now();
       const fd = new FormData(form);
       const params = new URLSearchParams(fd);
       params.set("series_slug", sel?.value || "");
@@ -444,17 +563,17 @@ const TSLab = (() => {
       try {
         const res = await fetch(`/api/tsa/window-preview?${params}`);
         const data = await res.json();
-        if (!data.error) TSLabCharts.renderTsaWindowChart("tsaWindowChart", data);
-      } catch (_) {
-        /* ignore preview errors while typing */
+        if (data.error) throw new Error(data.error);
+        console.info(`[tslab] tsa window preview ${(performance.now() - t0).toFixed(0)} ms`);
+        chartModal.open("Prognosefenster", (plotId) => {
+          TSLabCharts.renderTsaWindowChart(plotId, data);
+        });
+      } catch {
+        toast("Fenster-Vorschau nicht verfügbar.");
       }
     }
 
-    ["trainStart", "trainEnd", "forecastEnd", "plotPre", "plotForecast", "plotPost", "tsaMode"].forEach((id) => {
-      document.getElementById(id)?.addEventListener("change", refreshWindowChart);
-      document.getElementById(id)?.addEventListener("input", refreshWindowChart);
-    });
-    setTimeout(refreshWindowChart, 400);
+    document.getElementById("tsaShowWindowBtn")?.addEventListener("click", openTsaWindowChart);
 
     form?.addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -470,6 +589,10 @@ const TSLab = (() => {
       }
       const payload = Object.fromEntries(fd.entries());
       payload.models = models;
+      if (payload.order_mode !== "user") {
+        delete payload.arma_order;
+        delete payload.garch_order;
+      }
       const res = await fetch("/api/tsa/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -729,6 +852,91 @@ const TSLab = (() => {
     });
   }
 
+  function initCategoriesPage(returnTo) {
+    const form = document.getElementById("categoryCreateForm");
+    form?.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const name = document.getElementById("newCategoryName")?.value?.trim();
+      if (!name) {
+        toast("Bitte Kategorienamen eingeben.");
+        return;
+      }
+      const res = await fetch("/api/categories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      let data = {};
+      try {
+        data = await res.json();
+      } catch {
+        toast("Server-Antwort unlesbar.");
+        return;
+      }
+      if (!res.ok || data.ok === false) {
+        toast(data.message || "Anlegen fehlgeschlagen");
+        return;
+      }
+      toast(`Kategorie „${data.name}“ angelegt.`);
+      if (returnTo) window.location.href = returnTo;
+      else window.location.reload();
+    });
+
+    document.querySelectorAll("[data-save-category]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const id = btn.dataset.saveCategory;
+        const input = document.querySelector(`.category-name-input[data-id="${id}"]`);
+        const name = input?.value?.trim();
+        if (!name) return;
+        const res = await fetch(`/api/categories/${id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name }),
+        });
+        const data = await res.json();
+        toast(data.message || (data.ok ? "Gespeichert" : "Fehler"));
+      });
+    });
+
+    document.querySelectorAll("[data-delete-category]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const id = btn.dataset.deleteCategory;
+        if (!confirm("Kategorie wirklich löschen? Zuordnungen werden entfernt.")) return;
+        const res = await fetch(`/api/categories/${id}`, { method: "DELETE" });
+        const data = await res.json();
+        if (data.ok) window.location.reload();
+        else toast(data.message || "Fehler");
+      });
+    });
+  }
+
+  function initSeriesEdit(slug) {
+    const form = document.getElementById("seriesEditForm");
+    form?.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const name = document.getElementById("seriesNameEdit")?.value?.trim();
+      const catRaw = document.getElementById("seriesCategory")?.value;
+      const res = await fetch(`/api/series/${slug}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name,
+          category_id: catRaw || null,
+        }),
+      });
+      const data = await res.json();
+      toast(data.ok ? "Gespeichert" : data.message || "Fehler");
+      if (data.ok) window.location.reload();
+    });
+  }
+
   initCore();
-  return { initCorrelation, initTsa, initUpload, toast };
+  return {
+    initCorrelation,
+    initTsa,
+    initUpload,
+    initCategoriesPage,
+    initSeriesEdit,
+    toast,
+  };
 })();

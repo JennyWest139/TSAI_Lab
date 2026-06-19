@@ -6,6 +6,14 @@
 {% block content %}
 <section class="card">
   <div class="card-header" style="display:flex;gap:1rem;flex-wrap:wrap;align-items:center;margin-bottom:1rem;">
+    <label>Kategorie
+      <select id="categoryFilter">
+        <option value="">Alle</option>
+        {% for c in categories %}
+        <option value="{{ c.id }}" {% if active_category_id == c.id %}selected{% endif %}>{{ c.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
     <label>Tag-Filter <input type="text" id="tagFilter" placeholder="z. B. Reporting" list="tagSuggestions"></label>
     <datalist id="tagSuggestions"></datalist>
     <label><input type="checkbox" id="showHidden"> Ausgeblendete zeigen</label>
@@ -16,6 +24,7 @@
         <tr>
           <th>Name</th>
           <th>Slug</th>
+          <th>Kategorie</th>
           <th>Tags</th>
           <th>Von</th>
           <th>Bis</th>
@@ -33,16 +42,17 @@
             </a>
           </td>
           <td class="mono"><a class="series-link muted-link" href="{{ url_for('series_detail_page', slug=s.slug) }}">{{ s.slug }}</a></td>
+          <td>{{ s.category_name or '—' }}</td>
           <td class="tag-cell" data-entity-type="series" data-entity-id="{{ s.slug }}">{{ s.tags|join(', ') or '—' }}</td>
           <td>{{ s.first_date }}</td>
           <td>{{ s.last_date }}</td>
           <td>{{ s.observation_count }}</td>
           <td><span class="badge">{{ s.frequency_label }}</span></td>
           <td>
-            {% if 'Reporting' not in s.tags %}
+            {% if s.category_name != 'Reporting' and 'Reporting' not in s.tags %}
             <button type="button" class="btn btn-ghost btn-sm" data-delete-trigger data-entity-type="series" data-entity-slug="{{ s.slug }}">Löschen</button>
             {% else %}
-            <span class="muted" title="Reporting-Tag entfernen zum Löschen">🔒</span>
+            <span class="muted" title="Reporting-Kategorie: Löschen gesperrt">🔒</span>
             {% endif %}
           </td>
         </tr>
@@ -70,6 +80,13 @@
       });
     };
     filter?.addEventListener("input", apply);
+    document.getElementById("categoryFilter")?.addEventListener("change", (e) => {
+      const v = e.target.value;
+      const url = new URL(window.location.href);
+      if (v) url.searchParams.set("category_id", v);
+      else url.searchParams.delete("category_id");
+      window.location.href = url.toString();
+    });
   })();
 </script>
 {% endblock %}

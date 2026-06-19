@@ -30,6 +30,7 @@ class TimeSeries(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(120), unique=True, nullable=False)
     slug: Mapped[str] = mapped_column(String(120), unique=True, nullable=False)
+    category_id: Mapped[int | None] = mapped_column(ForeignKey("categories.id"))
     source_file: Mapped[str | None] = mapped_column(String(512))
     value_column: Mapped[str | None] = mapped_column(String(64))
     date_column: Mapped[str | None] = mapped_column(String(64))
@@ -44,6 +45,19 @@ class TimeSeries(Base):
     observations: Mapped[list[Observation]] = relationship(
         back_populates="series", cascade="all, delete-orphan"
     )
+    category: Mapped[Category | None] = relationship(back_populates="series")
+
+
+class Category(Base):
+    __tablename__ = "categories"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(120), unique=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    series: Mapped[list[TimeSeries]] = relationship(back_populates="category")
 
 
 class Observation(Base):
@@ -111,6 +125,29 @@ class TsaHistory(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+
+    forecast_values: Mapped[list[TsaForecastValue]] = relationship(
+        back_populates="tsa_history", cascade="all, delete-orphan"
+    )
+
+
+class TsaForecastValue(Base):
+    """Prognose- und Quantilwerte eines TSA-Laufs (Niveau)."""
+
+    __tablename__ = "tsa_forecast_values"
+    __table_args__ = (
+        Index("ix_tsa_forecast_history", "tsa_history_id"),
+        Index("ix_tsa_forecast_lookup", "tsa_history_id", "model", "obs_date"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    tsa_history_id: Mapped[int] = mapped_column(ForeignKey("tsa_history.id"), nullable=False)
+    model: Mapped[str] = mapped_column(String(32), nullable=False)
+    obs_date: Mapped[date] = mapped_column(Date, nullable=False)
+    field: Mapped[str] = mapped_column(String(32), nullable=False)
+    value: Mapped[float] = mapped_column(Float, nullable=False)
+
+    tsa_history: Mapped[TsaHistory] = relationship(back_populates="forecast_values")
 
 
 class EntityTag(Base):

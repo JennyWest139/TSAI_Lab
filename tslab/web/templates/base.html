@@ -24,25 +24,30 @@
         <a href="{{ url_for('dashboard') }}" class="nav-link {% if page == 'dashboard' %}active{% endif %}">
           <span class="nav-icon">◉</span> Übersicht
         </a>
+        <div class="nav-section">TS — Zeitreihen</div>
         <a href="{{ url_for('upload_page') }}" class="nav-link {% if page == 'upload' %}active{% endif %}">
           <span class="nav-icon">↑</span> Upload
         </a>
         <a href="{{ url_for('series_page') }}" class="nav-link {% if page == 'series' %}active{% endif %}">
           <span class="nav-icon">≡</span> Zeitreihen
         </a>
-        <div class="nav-section">Korrelation</div>
+        <div class="nav-section">CORR — Korrelation</div>
         <a href="{{ url_for('correlation_page') }}" class="nav-link {% if page == 'correlation' %}active{% endif %}">
           <span class="nav-icon">⇄</span> Neue Analyse
         </a>
         <a href="{{ url_for('correlation_history_page') }}" class="nav-link {% if page == 'correlation_history' %}active{% endif %}">
           <span class="nav-icon">⏱</span> Historie
         </a>
-        <div class="nav-section">TSA</div>
+        <div class="nav-section">TSA — Zeitreihenanalyse</div>
         <a href="{{ url_for('tsa_page') }}" class="nav-link {% if page == 'tsa' %}active{% endif %}">
           <span class="nav-icon">∿</span> Neue Analyse
         </a>
         <a href="{{ url_for('tsa_history_page') }}" class="nav-link {% if page == 'tsa_history' %}active{% endif %}">
           <span class="nav-icon">⏱</span> Historie
+        </a>
+        <div class="nav-section">Verwaltung</div>
+        <a href="{{ url_for('categories_page') }}" class="nav-link {% if page == 'categories' %}active{% endif %}">
+          <span class="nav-icon">▦</span> Kategorien
         </a>
       </nav>
       <div class="sidebar-foot">
@@ -79,6 +84,16 @@
   </div>
 
   <div class="toast-container" id="toastContainer"></div>
+
+  <div id="chartModal" class="modal-overlay" hidden>
+    <div class="card modal-card modal-wide">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:1rem;">
+        <h2 id="chartModalTitle">Grafik</h2>
+        <button type="button" class="btn btn-ghost" data-chart-close aria-label="Schließen">×</button>
+      </div>
+      <div id="chartModalBody"></div>
+    </div>
+  </div>
 
   <div id="deleteModal" class="modal-overlay" hidden>
     <div class="card modal-card">
