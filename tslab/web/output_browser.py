@@ -11,7 +11,7 @@ from flask import abort, send_file
 from tslab.config_loader import resolve_output_dir
 
 _IMAGE_EXT = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"}
-_DOC_EXT = {".txt", ".csv", ".pdf", ".html", ".json", ".docx"}
+_DOC_EXT = {".txt", ".csv", ".xlsx", ".pdf", ".html", ".json", ".docx"}
 
 
 def output_root() -> Path:

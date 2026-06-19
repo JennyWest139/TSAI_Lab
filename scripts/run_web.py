@@ -62,6 +62,8 @@ def main() -> None:
         print("  python scripts/run_web.py --no-mock-fallback")
     elif not backend.uses_mock and backend.database_kind == "postgresql":
         print("PostgreSQL verbunden — Korrelation und TSA live aus der DB.")
+    elif not backend.uses_mock and backend.database_kind == "sqlite":
+        print("SQLite verbunden — lokale data/tslab.db (PostgreSQL war nicht erreichbar).")
     app.run(host=args.host, port=args.port, debug=args.debug)
 
 

@@ -43,20 +43,29 @@ def create_app(*, use_mock: bool = False) -> Flask:
 
     def _series_dicts():
         tag = request.args.get("tag") or None
-        category_id = request.args.get("category_id", type=int)
+        category_ids = _category_ids_arg()
         include_hidden = request.args.get("include_hidden", "0") in ("1", "true", "yes")
         return [
             mock.series_to_dict(s)
             for s in backend.list_series(
-                tag=tag, category_id=category_id, include_hidden=include_hidden
+                tag=tag, category_ids=category_ids or None, include_hidden=include_hidden
             )
         ]
 
+    def _category_ids_arg() -> list[int]:
+        ids: list[int] = []
+        for raw in request.args.getlist("category_id"):
+            if raw in (None, "", "all"):
+                continue
+            try:
+                ids.append(int(raw))
+            except ValueError:
+                continue
+        return ids
+
     def _category_id_arg() -> int | None:
-        raw = request.args.get("category_id")
-        if raw in (None, "", "all"):
-            return None
-        return int(raw)
+        ids = _category_ids_arg()
+        return ids[0] if len(ids) == 1 else None
 
     @app.get("/")
     def dashboard():
@@ -74,12 +83,13 @@ def create_app(*, use_mock: bool = False) -> Flask:
 
     @app.get("/series")
     def series_page():
+        cat_ids = _category_ids_arg()
         return render_template(
             "series.html",
             page="series",
-            series=backend.list_series(category_id=_category_id_arg()),
-            categories=backend.list_categories(),
-            active_category_id=_category_id_arg(),
+            series=backend.list_series(category_ids=cat_ids or None),
+            categories=backend.list_used_categories(),
+            active_category_ids=cat_ids,
         )
 
     @app.get("/categories")
@@ -420,6 +430,17 @@ def create_app(*, use_mock: bool = False) -> Flask:
     @app.get("/api/tags/suggest")
     def api_tags_suggest():
         return jsonify(backend.tag_suggestions(request.args.get("q", "")))
+
+    @app.get("/api/backend/status")
+    def api_backend_status():
+        return jsonify(
+            {
+                "uses_mock": backend.uses_mock,
+                "mode_label": backend.mode_label,
+                "database_url": backend.database_url,
+                "database_kind": backend.database_kind,
+            }
+        )
 
     @app.get("/api/categories")
     def api_categories():

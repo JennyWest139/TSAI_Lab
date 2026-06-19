@@ -1,4 +1,4 @@
-"""KI-Berichte fuer Output-Laeufe (PNG, TXT, CSV) als Word-Dokument."""
+"""KI-Berichte fuer Output-Laeufe (PNG, TXT, Excel) als Word- und PDF-Dokument."""
 
 from __future__ import annotations
 
@@ -12,11 +12,15 @@ import pandas as pd
 from tslab.config_loader import load_defaults
 from tslab.services.ai_providers import (
     ModelSpec,
+    LLMUsage,
+    flush_langfuse,
     get_provider,
     init_langfuse,
+    langfuse_configured,
     parse_model_id,
 )
 from tslab.services.report_docx import build_run_report_docx
+from tslab.services.report_ai_pdf import build_run_report_pdf
 from tslab.web.output_browser import relative_output_path, resolve_output_path
 
 _SYSTEM_DE = (
@@ -177,16 +181,43 @@ def _read_text_file(path: Path, *, max_chars: int = 12000) -> str:
 
 def _read_csv_preview(path: Path, *, max_rows: int = 25) -> str:
     df = pd.read_csv(path)
+    return _dataframe_preview(df, max_rows=max_rows)
+
+
+def _read_xlsx_preview(path: Path, *, max_rows: int = 25) -> str:
+    df = pd.read_excel(path, engine="openpyxl")
+    return _dataframe_preview(df, max_rows=max_rows)
+
+
+def _dataframe_preview(df: pd.DataFrame, *, max_rows: int = 25) -> str:
     head = df.head(max_rows).to_string(index=False)
     stats = df.describe(include="all").transpose().head(12).to_string()
     return f"Spalten: {list(df.columns)}\nZeilen: {len(df)}\n\nKopf:\n{head}\n\nStatistik (Auszug):\n{stats}"
 
 
+def _read_table_preview(path: Path, *, max_rows: int = 25) -> str:
+    if path.suffix.lower() == ".xlsx":
+        return _read_xlsx_preview(path, max_rows=max_rows)
+    return _read_csv_preview(path, max_rows=max_rows)
+
+
 def _scan_run_dir(run_dir: Path) -> tuple[list[Path], list[Path], list[Path]]:
+    """PNG/TXT/Tabellen (Excel, legacy CSV) im Lauf-Ordner."""
     pngs = sorted(run_dir.glob("*.png"))
     txts = sorted(run_dir.glob("*.txt"))
-    csvs = sorted(run_dir.glob("*.csv"))
-    return pngs, txts, csvs
+    tables = sorted(run_dir.glob("*.xlsx")) + sorted(run_dir.glob("*.csv"))
+    if pngs or txts or tables:
+        return pngs, txts, tables
+    pngs = sorted(run_dir.rglob("*.png"))[:24]
+    txts = sorted(run_dir.rglob("*.txt"))[:12]
+    tables = sorted(run_dir.rglob("*.xlsx"))[:12] + sorted(run_dir.rglob("*.csv"))[:12]
+    return pngs, txts, tables
+
+
+def _accumulate_usage(total: LLMUsage, part: LLMUsage) -> None:
+    total.prompt_tokens += part.prompt_tokens
+    total.completion_tokens += part.completion_tokens
+    total.total_tokens += part.total_tokens
 
 
 def _model_spec_for_id(config: ReportConfig, model_id: str | None) -> ModelSpec:
@@ -222,6 +253,7 @@ def generate_run_report(
         }
 
     init_langfuse(config)
+    langfuse_active = langfuse_configured(config)
     spec = _model_spec_for_id(config, model_id)
     if not spec.enabled:
         return {"ok": False, "status": "error", "message": f"Modell {spec.id} ist deaktiviert."}
@@ -234,12 +266,12 @@ def generate_run_report(
     if not run_path.is_dir():
         return {"ok": False, "status": "error", "message": f"Ordner nicht gefunden: {output_dir}"}
 
-    pngs, txts, csvs = _scan_run_dir(run_path)
-    if not pngs and not txts and not csvs:
+    pngs, txts, tables = _scan_run_dir(run_path)
+    if not pngs and not txts and not tables:
         return {
             "ok": False,
             "status": "error",
-            "message": "Keine PNG-, TXT- oder CSV-Dateien im Lauf-Ordner.",
+            "message": "Keine PNG-, TXT- oder Tabellendateien im Lauf-Ordner.",
         }
 
     provider = get_provider(spec.provider, config)
@@ -250,63 +282,87 @@ def generate_run_report(
     text_bundle_parts: list[str] = []
 
     for tf in txts:
-        if tf.name == config.output_basename:
+        if tf.name in (config.output_basename, "ai_bericht.pdf"):
             continue
         content = _read_text_file(tf)
         text_bundle_parts.append(f"### {tf.name}\n{content}")
         text_sections.append((tf.name, content))
 
-    for cf in csvs:
-        preview = _read_csv_preview(cf)
-        text_bundle_parts.append(f"### {cf.name}\n{preview}")
-        text_sections.append((cf.name, preview))
+    for table_path in tables:
+        preview = _read_table_preview(table_path)
+        text_bundle_parts.append(f"### {table_path.name}\n{preview}")
+        text_sections.append((table_path.name, preview))
 
     ai_text_notes: list[tuple[str, str]] = []
+    ai_errors: list[str] = []
+    ai_warnings: list[str] = []
+    token_usage = LLMUsage()
+    llm_calls = 0
+
     if text_bundle_parts:
         try:
-            analysis = provider.complete_text(
+            resp = provider.complete_text(
                 system=_SYSTEM_DE,
                 user=_TEXT_PROMPT + "\n\n" + "\n\n".join(text_bundle_parts),
                 model=spec.model_name,
                 max_tokens=max_tok,
                 trace_name="tslab-report-text",
             )
-            ai_text_notes.append(("KI-Auswertung Text/CSV", analysis))
+            ai_text_notes.append(("KI-Auswertung Text/Tabellen", resp.text))
+            _accumulate_usage(token_usage, resp.usage)
+            llm_calls += 1
         except Exception as exc:
-            ai_text_notes.append(("KI-Auswertung Text/CSV", f"(Fehler: {exc})"))
+            msg = f"KI-Auswertung Text/Tabellen: {exc}"
+            ai_errors.append(msg)
+            ai_text_notes.append(("KI-Auswertung Text/Tabellen", f"(Fehler: {exc})"))
 
     image_sections: list[tuple[str, str, Path]] = []
     image_notes_for_summary: list[str] = []
     for img in pngs:
         try:
             if spec.vision:
-                expl = provider.describe_image(
+                resp = provider.describe_image(
                     image_path=img,
                     prompt=_IMAGE_PROMPT,
                     model=spec.model_name,
                     max_tokens=image_tok,
                     trace_name=f"tslab-report-image-{img.stem}",
                 )
+                expl = resp.text
+                _accumulate_usage(token_usage, resp.usage)
+                llm_calls += 1
             else:
                 expl = "(Vision fuer dieses Modell nicht verfuegbar.)"
+                ai_warnings.append(f"Vision nicht verfuegbar fuer {spec.label}.")
             image_sections.append((img.name, expl, img))
             image_notes_for_summary.append(f"{img.name}: {expl}")
         except Exception as exc:
+            msg = f"Bildanalyse {img.name}: {exc}"
+            ai_errors.append(msg)
             image_sections.append((img.name, f"(Fehler bei Bildanalyse: {exc})", img))
 
     summary_input = "\n\n".join(
         [t for _, t in ai_text_notes] + image_notes_for_summary
     ) or "Keine automatische Voranalyse."
     try:
-        summary = provider.complete_text(
+        resp = provider.complete_text(
             system=_SYSTEM_DE,
             user=_SUMMARY_PROMPT + "\n\n" + summary_input,
             model=spec.model_name,
             max_tokens=max_tok,
             trace_name="tslab-report-summary",
         )
+        summary = resp.text
+        _accumulate_usage(token_usage, resp.usage)
+        llm_calls += 1
     except Exception as exc:
+        ai_errors.append(f"Zusammenfassung: {exc}")
         summary = f"Zusammenfassung konnte nicht erzeugt werden: {exc}"
+
+    if langfuse_active:
+        flush_langfuse()
+    elif llm_calls:
+        ai_warnings.append("Langfuse nicht konfiguriert — Traces werden nicht extern protokolliert.")
 
     doc_text_sections = list(text_sections)
     for heading, body in ai_text_notes:
@@ -327,19 +383,55 @@ def generate_run_report(
         model_label=spec.label,
     )
 
+    pdf_name = Path(config.output_basename).with_suffix(".pdf").name
+    pdf_path = run_path / pdf_name
+    build_run_report_pdf(
+        pdf_path,
+        title=doc_title,
+        subtitle=subtitle,
+        summary=summary,
+        text_sections=doc_text_sections,
+        image_sections=image_sections,
+        model_label=spec.label,
+    )
+
     rel = relative_output_path(out_path)
     file_url = f"/output/file/{rel}" if rel else None
+    pdf_rel = relative_output_path(pdf_path)
+    pdf_url = f"/output/file/{pdf_rel}" if pdf_rel else None
+
+    ai_ok = llm_calls > 0 and not ai_errors
+    status_msg = f"KI-Bericht erstellt: {report_name}"
+    if ai_errors:
+        status_msg += f" ({len(ai_errors)} KI-Fehler — siehe Word-Bericht)"
+    elif llm_calls == 0:
+        status_msg += " (ohne KI-Auswertung)"
 
     return {
         "ok": True,
+        "ai_ok": ai_ok,
         "status": "done",
-        "message": f"KI-Bericht erstellt: {report_name}",
+        "message": status_msg,
         "report_path": str(out_path),
         "report_rel": rel,
         "report_url": file_url,
+        "report_pdf_path": str(pdf_path),
+        "report_pdf_rel": pdf_rel,
+        "report_pdf_url": pdf_url,
         "model": spec.id,
         "png_count": len(pngs),
-        "text_count": len(txts) + len(csvs),
+        "text_count": len(txts) + len(tables),
+        "llm_calls": llm_calls,
+        "ai_errors": ai_errors,
+        "ai_warnings": ai_warnings,
+        "token_usage": {
+            "prompt_tokens": token_usage.prompt_tokens,
+            "completion_tokens": token_usage.completion_tokens,
+            "total_tokens": token_usage.total_tokens,
+            "model": spec.model_name,
+            "calls": llm_calls,
+        },
+        "langfuse_active": langfuse_active,
     }
 
 

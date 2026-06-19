@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from tslab.config_loader import resolve_output_dir
 from tslab.db.models import CorrelationHistory
-from tslab.plots.correlation_plots import plot_aligned_series, plot_cross_correlation_bars
+from tslab.services.output_tables import write_dataframe_excel
 from tslab.services.analysis_mode import AnalysisModeConfig
 from tslab.services.correlation import (
     CorrelationResult,
@@ -17,6 +17,7 @@ from tslab.services.correlation import (
     run_correlation,
 )
 from tslab.services.output_naming import correlation_folder_name
+from tslab.plots.correlation_plots import plot_aligned_series, plot_cross_correlation_bars
 
 
 @dataclass(frozen=True)
@@ -108,7 +109,7 @@ def run_correlation_job(
     out = (output_root or resolve_output_dir()) / label
     out.mkdir(parents=True, exist_ok=True)
 
-    result.table.to_csv(out / "lag_correlations.csv", index=False, encoding="utf-8-sig")
+    write_dataframe_excel(result.table, out / "lag_correlations", sheet_name="Korrelation")
     plot_cross_correlation_bars(result, out / "cross_correlation.png")
     levels_a, levels_b, _ = load_pair_for_correlation(
         session,

@@ -57,11 +57,14 @@ def persist_level_forecast(
     return len(rows)
 
 
-def persist_forecast_csv(session: Session, *, tsa_history_id: int, model: str, csv_path: Path) -> int:
-    """Liest Niveau-Prognose-CSV und speichert Werte in der DB."""
-    if not csv_path.is_file():
+def persist_forecast_table(session: Session, *, tsa_history_id: int, model: str, table_path: Path) -> int:
+    """Liest Niveau-Prognose-Tabelle (Excel oder legacy CSV) und speichert Werte in der DB."""
+    if not table_path.is_file():
         return 0
-    df = pd.read_csv(csv_path)
+    if table_path.suffix.lower() == ".xlsx":
+        df = pd.read_excel(table_path, engine="openpyxl")
+    else:
+        df = pd.read_csv(table_path)
     if df.empty or "date" not in df.columns:
         return 0
     session.execute(
@@ -97,10 +100,14 @@ def persist_forecast_csv(session: Session, *, tsa_history_id: int, model: str, c
 def persist_tsa_output_forecasts(
     session: Session, *, tsa_history_id: int, output_dir: Path, models_run: list[str]
 ) -> int:
-    """Persistiert Forward-Prognose-CSVs aller gelaufenen Modelle."""
+    """Persistiert Forward-Prognose-Tabellen aller gelaufenen Modelle."""
     total = 0
     for model in models_run:
         tag = model.replace("-", "_")
-        for csv_path in sorted(output_dir.rglob(f"{tag}_forecast_forward.csv")):
-            total += persist_forecast_csv(session, tsa_history_id=tsa_history_id, model=model, csv_path=csv_path)
+        patterns = (f"{tag}_forecast_forward.xlsx", f"{tag}_forecast_forward.csv")
+        for pattern in patterns:
+            for table_path in sorted(output_dir.rglob(pattern)):
+                total += persist_forecast_table(
+                    session, tsa_history_id=tsa_history_id, model=model, table_path=table_path
+                )
     return total

@@ -318,3 +318,7 @@ const TSLabCharts = (() => {
     loadSeriesChart,
   };
 })();
+
+if (typeof window !== "undefined") {
+  window.TSLabCharts = TSLabCharts;
+}

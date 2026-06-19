@@ -6,13 +6,13 @@
 {% block content %}
 <section class="card">
   <h2>Neue Kategorie</h2>
-  <form id="categoryCreateForm" class="grid two-col">
+  <form id="categoryCreateForm" class="grid two-col" action="#" method="post" onsubmit="return false;">
     <div class="field-row">
       <label for="newCategoryName">Name</label>
       <input type="text" id="newCategoryName" name="name" required maxlength="120" placeholder="z. B. Makro">
     </div>
     <div class="form-actions">
-      <button type="submit" class="btn btn-primary">Anlegen</button>
+      <button type="button" id="categoryCreateBtn" class="btn btn-primary">Anlegen</button>
       {% if return_to %}
       <a href="{{ return_to }}" class="btn btn-ghost">Zurück</a>
       {% endif %}

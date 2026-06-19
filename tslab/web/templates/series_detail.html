@@ -11,7 +11,7 @@
 <div class="grid two-col">
   <section class="card">
     <h2>Stammdaten</h2>
-    <form id="seriesEditForm">
+    <form id="seriesEditForm" action="#" method="post" onsubmit="return false;">
       <div class="field-row">
         <label for="seriesNameEdit">Anzeigename</label>
         <input type="text" id="seriesNameEdit" name="name" value="{{ series.label_de }}" required maxlength="120">
@@ -31,7 +31,7 @@
         <p class="hint"><a href="{{ url_for('categories_page', return_to=request.path) }}">Neue Kategorie anlegen</a></p>
       </div>
       <div class="form-actions">
-        <button type="submit" class="btn btn-primary">Speichern</button>
+        <button type="button" id="seriesSaveBtn" class="btn btn-primary">Speichern</button>
       </div>
     </form>
     <dl class="meta-dl" style="margin-top:1rem;">

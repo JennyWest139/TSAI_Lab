@@ -16,6 +16,8 @@ from tslab.db.engine import (
     get_database_kind,
     get_database_url,
     get_session,
+    get_sqlite_file_path,
+    reset_engine_cache,
 )
 from tslab.db.models import Category, CorrelationHistory, Observation, TimeSeries, TsaHistory
 from tslab.services.analysis_mode import (
@@ -59,7 +61,9 @@ from tslab.services.report_service import (
     ai_reports_available,
     generate_run_report,
     list_report_models,
+    load_report_config,
 )
+from tslab.services.run_telemetry import RunTelemetryCollector, langfuse_status_from_config
 from tslab.services.frequency_detect import detect_frequency_from_dates
 from tslab.services.month_align import (
     compute_pair_overlap,
@@ -251,17 +255,46 @@ class WebBackend:
     def _probe_db(self) -> bool:
         if self._force_mock:
             return False
-        if self._db_ok is not None:
-            return self._db_ok
+        if self._db_ok is True:
+            return True
+        # Bei Fehlschlag nicht dauerhaft cachen — DB kann spaeter hochfahren
         try:
             check_connection()
             from tslab.db.migrate import migrate_schema
 
             migrate_schema()
             self._db_ok = True
+            return True
         except (DatabaseConnectionError, OSError):
-            self._db_ok = False
-        return self._db_ok
+            if self._try_sqlite_fallback():
+                self._db_ok = True
+                return True
+            return False
+
+    def _try_sqlite_fallback(self) -> bool:
+        """PostgreSQL nicht erreichbar — vor Mock-Fallback lokale SQLite versuchen."""
+        import os
+
+        url = get_database_url()
+        if url.startswith("sqlite"):
+            return False
+        sqlite_path = get_sqlite_file_path()
+        if sqlite_path is None:
+            from tslab.config_loader import project_root
+
+            sqlite_path = (project_root() / "data" / "tslab.db").resolve()
+        if not sqlite_path.is_file():
+            return False
+        os.environ["TSLAB_DATABASE_URL"] = f"sqlite:///{sqlite_path.as_posix()}"
+        reset_engine_cache()
+        try:
+            check_connection()
+            from tslab.db.migrate import migrate_schema
+
+            migrate_schema()
+            return True
+        except (DatabaseConnectionError, OSError):
+            return False
 
     @property
     def uses_mock(self) -> bool:
@@ -274,6 +307,9 @@ class WebBackend:
         if self.uses_mock:
             expected = get_database_display_name()
             return f"Mock-Daten ({expected} nicht erreichbar)"
+        kind = get_database_kind()
+        if kind == "sqlite":
+            return "SQLite (lokale Datei)"
         return get_database_display_name()
 
     @property
@@ -293,15 +329,14 @@ class WebBackend:
         *,
         tag: str | None = None,
         category_id: int | None = None,
+        category_ids: list[int] | None = None,
         include_hidden: bool = False,
     ) -> list[SeriesMeta]:
+        ids_filter = list(category_ids or [])
+        if category_id is not None and not ids_filter:
+            ids_filter = [category_id]
         if self.uses_mock:
-            series = list(mock.MOCK_SERIES)
-            if tag:
-                series = [s for s in series if tag in s.tags]
-            if category_id is not None:
-                series = [s for s in series if s.category_id == category_id]
-            return series
+            return mock.mock_list_series(tag=tag, category_ids=ids_filter or None)
         with get_session() as session:
             rows = list_series(session)
             if not include_hidden:
@@ -309,9 +344,19 @@ class WebBackend:
             if tag:
                 ids = set(entity_ids_with_tag(session, ENTITY_SERIES, tag))
                 rows = [ts for ts in rows if ts.id in ids]
-            if category_id is not None:
-                rows = [ts for ts in rows if ts.category_id == category_id]
+            if ids_filter:
+                id_set = set(ids_filter)
+                rows = [ts for ts in rows if ts.category_id in id_set]
             return [_ts_to_meta(session, ts) for ts in rows]
+
+    def list_used_categories(self) -> list[dict]:
+        """Kategorien, die mindestens einer Zeitreihe zugeordnet sind."""
+        used_ids = {
+            s.category_id
+            for s in self.list_series(include_hidden=True)
+            if s.category_id is not None
+        }
+        return [c for c in self.list_categories() if c["id"] in used_ids]
 
     def series_by_slug(self, slug: str) -> SeriesMeta | None:
         if self.uses_mock:
@@ -510,9 +555,30 @@ class WebBackend:
     ) -> dict:
         return generate_run_report(output_dir, model_id=model_id, run_type=run_type)
 
+    def _finalize_run(
+        self,
+        result: dict,
+        *,
+        collector: RunTelemetryCollector,
+        output_dir: str,
+        browse_url: str | None,
+        ai_report: dict | None,
+    ) -> dict:
+        collector.set_output(output_dir, browse_url=browse_url)
+        collector.set_langfuse_status(langfuse_status_from_config(load_report_config()))
+        collector.merge_ai_report(ai_report)
+        run_pdf = collector.write_pdf()
+        result["run_report"] = run_pdf
+        if run_pdf.get("ok") and run_pdf.get("url"):
+            job = result.get("job") or {}
+            job["run_report_url"] = run_pdf["url"]
+            result["job"] = job
+            result["message"] = str(result.get("message", "")) + f" · {run_pdf.get('message', 'Laufbericht')}"
+        return result
+
     def list_categories(self) -> list[dict]:
         if self.uses_mock:
-            return []
+            return mock.mock_list_categories()
         with get_session() as session:
             return [
                 {
@@ -531,21 +597,21 @@ class WebBackend:
         if not clean:
             raise ValueError("Kategoriename fehlt.")
         if self.uses_mock:
-            return {"ok": True, "id": 1, "name": clean}
+            return mock.mock_create_category(clean)
         with get_session() as session:
             row = create_category(session, clean)
             return {"ok": True, "id": row.id, "name": row.name}
 
     def update_category_entry(self, category_id: int, name: str) -> dict:
         if self.uses_mock:
-            return {"ok": True, "id": category_id, "name": name.strip()}
+            return mock.mock_update_category(category_id, name)
         with get_session() as session:
             row = update_category(session, category_id, name)
             return {"ok": True, "id": row.id, "name": row.name}
 
     def delete_category_entry(self, category_id: int) -> dict:
         if self.uses_mock:
-            return {"ok": True}
+            return mock.mock_delete_category(category_id)
         with get_session() as session:
             delete_category(session, category_id)
             return {"ok": True}
@@ -557,7 +623,7 @@ class WebBackend:
         if not clean:
             raise ValueError("Name darf nicht leer sein.")
         if self.uses_mock:
-            return {"ok": True, "message": "Mock: nicht gespeichert"}
+            return mock.mock_update_series_meta(slug, name=clean, category_id=category_id)
         with get_session() as session:
             ts = get_series_by_slug(session, slug)
             if ts is None:
@@ -829,47 +895,49 @@ class WebBackend:
         if max_lag < 1:
             raise ValueError("max_lag muss mindestens 1 sein.")
 
-        with get_session() as session:
-            ts_a = get_series_by_slug(session, series_a)
-            ts_b = get_series_by_slug(session, series_b)
-            if ts_a is None or ts_b is None:
-                raise ValueError("Eine oder beide Zeitreihen wurden nicht gefunden.")
+        collector = RunTelemetryCollector(run_type="Korrelation")
+        with collector.track("correlation_job"):
+            with get_session() as session:
+                ts_a = get_series_by_slug(session, series_a)
+                ts_b = get_series_by_slug(session, series_b)
+                if ts_a is None or ts_b is None:
+                    raise ValueError("Eine oder beide Zeitreihen wurden nicht gefunden.")
 
-            ctx = self._overlap_context(series_a, series_b, frequency=frequency)
-            if not ctx or not ctx.get("dates"):
-                raise ValueError("Keine gemeinsame Datenbasis fuer diese Paarung.")
+                ctx = self._overlap_context(series_a, series_b, frequency=frequency)
+                if not ctx or not ctx.get("dates"):
+                    raise ValueError("Keine gemeinsame Datenbasis fuer diese Paarung.")
 
-            overlap_dates = ctx["dates"]
-            eff_freq = ctx.get("suggested_frequency", "MS")
-            start_date, end_date = _validate_date_range(
-                overlap_dates, start_date, end_date, frequency=eff_freq
-            )
+                overlap_dates = ctx["dates"]
+                eff_freq = ctx.get("suggested_frequency", "MS")
+                start_date, end_date = _validate_date_range(
+                    overlap_dates, start_date, end_date, frequency=eff_freq
+                )
 
-            eff_start, eff_end = resolve_study_dates_for_mode(
-                mode_config, start_date=start_date, end_date=end_date
-            )
+                eff_start, eff_end = resolve_study_dates_for_mode(
+                    mode_config, start_date=start_date, end_date=end_date
+                )
 
-            full_a = load_series_full_pandas(session, series_a)
-            full_b = load_series_full_pandas(session, series_b)
-            resolve_correlation_study_dates(
-                full_a,
-                full_b,
-                start_date=eff_start,
-                end_date=eff_end,
-                frequency=eff_freq,
-            )
+                full_a = load_series_full_pandas(session, series_a)
+                full_b = load_series_full_pandas(session, series_b)
+                resolve_correlation_study_dates(
+                    full_a,
+                    full_b,
+                    start_date=eff_start,
+                    end_date=eff_end,
+                    frequency=eff_freq,
+                )
 
-            job = run_correlation_job(
-                session,
-                series_a,
-                series_b,
-                mode_config=mode_config,
-                start_date=eff_start,
-                end_date=eff_end,
-                max_lag=max_lag,
-                frequency=eff_freq,
-                run_name=str(payload.get("run_name") or suggest_run_name(series_a, series_b)),
-            )
+                job = run_correlation_job(
+                    session,
+                    series_a,
+                    series_b,
+                    mode_config=mode_config,
+                    start_date=eff_start,
+                    end_date=eff_end,
+                    max_lag=max_lag,
+                    frequency=eff_freq,
+                    run_name=str(payload.get("run_name") or suggest_run_name(series_a, series_b)),
+                )
 
         out = str(job.output_dir)
         run_name = str(payload.get("run_name") or suggest_run_name(series_a, series_b))
@@ -899,12 +967,23 @@ class WebBackend:
                 "started_at": datetime.now().isoformat(),
             },
         }
-        report = self._maybe_generate_ai_report(payload, out, run_type="Korrelation")
+        report = None
+        if self._want_ai_report(payload):
+            with collector.track("ai_report", model=payload.get("report_model")):
+                report = self._maybe_generate_ai_report(payload, out, run_type="Korrelation")
         if report:
             result["report"] = report
             if report.get("ok"):
                 result["message"] += f" · {report.get('message', 'KI-Bericht')}"
-        return result
+                if report.get("ai_errors"):
+                    result["message"] += f" ⚠ {len(report['ai_errors'])} KI-Fehler"
+        return self._finalize_run(
+            result,
+            collector=collector,
+            output_dir=out,
+            browse_url=browse,
+            ai_report=report,
+        )
 
     def run_tsa(self, payload: dict) -> dict:
         if self.uses_mock:
@@ -959,20 +1038,22 @@ class WebBackend:
         except (TypeError, ValueError) as exc:
             raise ValueError("Prognose-Grafikfenster: ungueltige Jahreswerte.") from exc
 
-        with get_session() as session:
-            job = run_tsa_job(
-                session,
-                mode_config,
-                series_slug=series_slug,
-                start_date=train_start,
-                end_date=train_end,
-                forecast_end=forecast_end,
-                models=models,
-                plot_window=plot_window,
-                order_mode=str(payload.get("order_mode") or "auto"),
-                arma_user_orders=parse_order_list(payload.get("arma_order")),
-                garch_user_orders=parse_order_list(payload.get("garch_order")),
-            )
+        collector = RunTelemetryCollector(run_type="TSA")
+        with collector.track("tsa_job", models=",".join(models)):
+            with get_session() as session:
+                job = run_tsa_job(
+                    session,
+                    mode_config,
+                    series_slug=series_slug,
+                    start_date=train_start,
+                    end_date=train_end,
+                    forecast_end=forecast_end,
+                    models=models,
+                    plot_window=plot_window,
+                    order_mode=str(payload.get("order_mode") or "auto"),
+                    arma_user_orders=parse_order_list(payload.get("arma_order")),
+                    garch_user_orders=parse_order_list(payload.get("garch_order")),
+                )
 
         out = str(job.output_dir)
         browse = browse_url_for(out)
@@ -997,12 +1078,23 @@ class WebBackend:
                 "started_at": datetime.now().isoformat(),
             },
         }
-        report = self._maybe_generate_ai_report(payload, out, run_type="TSA")
+        report = None
+        if self._want_ai_report(payload):
+            with collector.track("ai_report", model=payload.get("report_model")):
+                report = self._maybe_generate_ai_report(payload, out, run_type="TSA")
         if report:
             result["report"] = report
             if report.get("ok"):
                 result["message"] += f" · {report.get('message', 'KI-Bericht')}"
-        return result
+                if report.get("ai_errors"):
+                    result["message"] += f" ⚠ {len(report['ai_errors'])} KI-Fehler"
+        return self._finalize_run(
+            result,
+            collector=collector,
+            output_dir=out,
+            browse_url=browse,
+            ai_report=report,
+        )
 
     def tsa_window_preview(self, params: dict) -> dict:
         if self.uses_mock:

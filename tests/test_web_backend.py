@@ -15,6 +15,14 @@ class WebBackendMockTests(unittest.TestCase):
         app.config["TESTING"] = True
         self.client = app.test_client()
 
+    def test_probe_db_retries_after_failure(self) -> None:
+        backend = WebBackend(use_mock=False)
+        backend._db_ok = False  # simuliert alten Bug: dauerhaft False
+        # Ohne Fix bliebe uses_mock True; mit Fix wird neu probiert
+        if backend._probe_db():
+            self.assertFalse(backend.uses_mock)
+            self.assertTrue(backend._db_ok)
+
     def test_mock_backend_lists_series(self) -> None:
         series = self.backend.list_series()
         self.assertGreaterEqual(len(series), 3)

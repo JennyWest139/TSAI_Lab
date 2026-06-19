@@ -48,7 +48,7 @@ class LevelForecastTests(unittest.TestCase):
         )
         self.assertAlmostEqual(level_fc.mean.iloc[0], 1020.0 * np.exp(0.01), places=4)
 
-    def test_write_level_csv(self) -> None:
+    def test_write_level_excel(self) -> None:
         idx = pd.date_range("2006-08-01", periods=2, freq="MS")
         from tslab.services.level_forecast import LevelForecast
 
@@ -60,11 +60,12 @@ class LevelForecastTests(unittest.TestCase):
             anchor_date=pd.Timestamp("2006-07-01"),
         )
         with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "levels.csv"
-            write_level_forecast_table(level_fc, path)
-            self.assertTrue(path.is_file())
-            text = path.read_text(encoding="utf-8-sig")
-            self.assertIn("prognose_mittelwert", text)
+            path = Path(tmp) / "levels.xlsx"
+            out = write_level_forecast_table(level_fc, path)
+            self.assertTrue(out.is_file())
+            self.assertEqual(out.suffix, ".xlsx")
+            df = pd.read_excel(out, engine="openpyxl")
+            self.assertIn("prognose_mittelwert", df.columns)
 
 
 if __name__ == "__main__":

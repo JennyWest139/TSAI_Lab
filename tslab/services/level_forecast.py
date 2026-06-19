@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
 from scipy import stats
+
+from tslab.services.output_tables import write_dataframe_excel
 
 from tslab.services.analysis_mode import AnalysisModeConfig
 from tslab.services.models_garch import VolatilityForecast
@@ -118,7 +119,7 @@ def write_level_forecast_table(
     *,
     holdout_prices: pd.Series | None = None,
 ) -> Path:
-    """CSV: Datum, Punktprognose, Quantile, optional Ist-Niveau."""
+    """Excel: Datum, Punktprognose, Quantile, optional Ist-Niveau."""
     path.parent.mkdir(parents=True, exist_ok=True)
     rows: dict[str, pd.Series] = {
         "date": pd.Series(level_fc.index),
@@ -130,8 +131,7 @@ def write_level_forecast_table(
     if holdout_prices is not None and not holdout_prices.empty:
         rows["ist_pdax"] = holdout_prices.reindex(level_fc.index)
     df = pd.DataFrame(rows)
-    df.to_csv(path, index=False, encoding="utf-8-sig", float_format="%.4f")
-    return path
+    return write_dataframe_excel(df, path, sheet_name="Prognose")
 
 
 def format_level_forecast_summary(level_fc: LevelForecast) -> str:

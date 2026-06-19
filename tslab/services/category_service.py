@@ -65,6 +65,8 @@ def update_category(session: Session, category_id: int, name: str) -> Category:
     row = get_category(session, category_id)
     if row is None:
         raise ValueError("Kategorie nicht gefunden.")
+    if is_protected_category(row):
+        raise ValueError(f"Kategorie '{PROTECTED_CATEGORY}' darf nicht umbenannt werden.")
     clean = name.strip()
     if not clean:
         raise ValueError("Kategoriename darf nicht leer sein.")

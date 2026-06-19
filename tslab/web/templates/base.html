@@ -53,6 +53,12 @@
       <div class="sidebar-foot">
         <span class="badge badge-muted">UI-Prototyp</span>
         <small>Backend: {{ backend_mode }}</small>
+        {% if uses_mock %}
+        <small class="field-error" style="display:block;margin-top:0.35rem;">
+          Mock-Modus — Kategorien &amp; DB-Aenderungen werden nicht gespeichert.
+          Server neu starten, wenn PostgreSQL laeuft.
+        </small>
+        {% endif %}
       </div>
     </aside>
 
@@ -114,7 +120,7 @@
     </div>
   </div>
 
-  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/app.js') }}?v=5"></script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import date, datetime, timedelta
 
 import numpy as np
 import pandas as pd
+
+PROTECTED_CATEGORY = "Reporting"
+
+# In-Memory-Kategorien fuer Mock-Modus (bleibt waehrend Server-Lauf erhalten)
+_mock_categories: list[dict] = [{"id": 1, "name": PROTECTED_CATEGORY}]
+_mock_next_category_id = 2
+_mock_series_category: dict[str, int] = {}  # slug -> category_id
 
 
 @dataclass(frozen=True)
@@ -202,7 +209,111 @@ FREQUENCY_OPTIONS = [
 
 
 def series_by_slug(slug: str) -> SeriesMeta | None:
-    return next((s for s in MOCK_SERIES if s.slug == slug), None)
+    base = next((s for s in MOCK_SERIES if s.slug == slug), None)
+    if base is None:
+        return None
+    cat_id = _mock_series_category.get(slug)
+    if cat_id is None:
+        return base
+    cat = mock_category_by_id(cat_id)
+    return replace(base, category_id=cat_id, category_name=cat["name"] if cat else None)
+
+
+def mock_category_by_id(category_id: int) -> dict | None:
+    return next((c for c in _mock_categories if c["id"] == category_id), None)
+
+
+def mock_list_categories() -> list[dict]:
+    counts: dict[int, int] = {c["id"]: 0 for c in _mock_categories}
+    for slug, cid in _mock_series_category.items():
+        if series_by_slug(slug) and cid in counts:
+            counts[cid] += 1
+    return [
+        {"id": c["id"], "name": c["name"], "series_count": counts.get(c["id"], 0)}
+        for c in sorted(_mock_categories, key=lambda x: x["name"].lower())
+    ]
+
+
+def mock_create_category(name: str) -> dict:
+    global _mock_next_category_id
+    clean = name.strip()
+    if not clean:
+        raise ValueError("Kategoriename darf nicht leer sein.")
+    if clean.lower() == PROTECTED_CATEGORY.lower():
+        raise ValueError(f"Kategorie '{PROTECTED_CATEGORY}' ist reserviert.")
+    if any(c["name"].lower() == clean.lower() for c in _mock_categories):
+        raise ValueError(f"Kategorie '{clean}' existiert bereits.")
+    row = {"id": _mock_next_category_id, "name": clean}
+    _mock_next_category_id += 1
+    _mock_categories.append(row)
+    return {"ok": True, "id": row["id"], "name": row["name"]}
+
+
+def mock_update_category(category_id: int, name: str) -> dict:
+    row = mock_category_by_id(category_id)
+    if row is None:
+        raise ValueError("Kategorie nicht gefunden.")
+    if row["name"] == PROTECTED_CATEGORY:
+        raise ValueError(f"Kategorie '{PROTECTED_CATEGORY}' darf nicht umbenannt werden.")
+    clean = name.strip()
+    if not clean:
+        raise ValueError("Kategoriename darf nicht leer sein.")
+    other = next(
+        (c for c in _mock_categories if c["name"].lower() == clean.lower() and c["id"] != category_id),
+        None,
+    )
+    if other:
+        raise ValueError(f"Kategorie '{clean}' existiert bereits.")
+    row["name"] = clean
+    return {"ok": True, "id": category_id, "name": clean}
+
+
+def mock_delete_category(category_id: int) -> dict:
+    row = mock_category_by_id(category_id)
+    if row is None:
+        raise ValueError("Kategorie nicht gefunden.")
+    if row["name"] == PROTECTED_CATEGORY:
+        raise ValueError(f"Kategorie '{PROTECTED_CATEGORY}' darf nicht gelöscht werden.")
+    _mock_categories[:] = [c for c in _mock_categories if c["id"] != category_id]
+    for slug, cid in list(_mock_series_category.items()):
+        if cid == category_id:
+            del _mock_series_category[slug]
+    return {"ok": True}
+
+
+def mock_update_series_meta(slug: str, *, name: str, category_id: int | None) -> dict:
+    base = next((s for s in MOCK_SERIES if s.slug == slug), None)
+    if base is None:
+        raise ValueError(f"Zeitreihe '{slug}' nicht gefunden.")
+    if category_id is not None and mock_category_by_id(category_id) is None:
+        raise ValueError("Kategorie nicht gefunden.")
+    if category_id is None:
+        _mock_series_category.pop(slug, None)
+    else:
+        _mock_series_category[slug] = category_id
+    updated = series_by_slug(slug)
+    assert updated is not None
+    d = series_to_dict(replace(updated, name=name.strip(), label_de=name.strip()))
+    return {"ok": True, "series": d}
+
+
+def mock_list_series(
+    *,
+    tag: str | None = None,
+    category_id: int | None = None,
+    category_ids: list[int] | None = None,
+) -> list[SeriesMeta]:
+    series = [series_by_slug(s.slug) for s in MOCK_SERIES]
+    series = [s for s in series if s is not None]
+    if tag:
+        series = [s for s in series if tag in s.tags]
+    ids_filter = list(category_ids or [])
+    if category_id is not None and not ids_filter:
+        ids_filter = [category_id]
+    if ids_filter:
+        id_set = set(ids_filter)
+        series = [s for s in series if s.category_id in id_set]
+    return series
 
 
 def series_to_dict(s: SeriesMeta) -> dict:

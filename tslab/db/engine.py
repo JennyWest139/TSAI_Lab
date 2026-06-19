@@ -37,6 +37,11 @@ Ohne DB (nur CSV):
 _engines: dict[str, Engine] = {}
 
 
+def reset_engine_cache() -> None:
+    """Engine-Cache leeren (z. B. nach DB-URL-Fallback)."""
+    _engines.clear()
+
+
 class DatabaseConnectionError(ConnectionError):
     """DB nicht erreichbar."""
 

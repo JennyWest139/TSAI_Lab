@@ -1,0 +1,143 @@
+"""Kompakter PDF-Laufbericht je Analyse-Lauf (Reports/laufbericht.pdf)."""
+
+from __future__ import annotations
+
+from datetime import datetime
+from pathlib import Path
+
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.units import cm
+from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+from tslab.services.run_telemetry import RunTelemetry
+
+
+def write_run_report_pdf(path: Path, telemetry: RunTelemetry) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    styles = getSampleStyleSheet()
+    body = ParagraphStyle(
+        "RunBody",
+        parent=styles["Normal"],
+        fontSize=9,
+        leading=12,
+        spaceAfter=6,
+    )
+    h1 = ParagraphStyle(
+        "RunH1",
+        parent=styles["Heading2"],
+        fontSize=13,
+        textColor=colors.HexColor("#1f6feb"),
+        spaceAfter=8,
+    )
+    mono = ParagraphStyle(
+        "RunMono",
+        parent=styles["Code"],
+        fontSize=8,
+        leading=10,
+    )
+
+    doc = SimpleDocTemplate(
+        str(path),
+        pagesize=A4,
+        leftMargin=2 * cm,
+        rightMargin=2 * cm,
+        topMargin=1.8 * cm,
+        bottomMargin=1.8 * cm,
+        title=f"TSLab Laufbericht — {telemetry.run_type}",
+    )
+    story: list = []
+
+    story.append(Paragraph(f"TSLab Laufbericht — {telemetry.run_type}", h1))
+    started = telemetry.started_at.astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
+    story.append(Paragraph(f"Erstellt: {datetime.now().strftime('%Y-%m-%d %H:%M')} · Laufstart: {started}", body))
+    if telemetry.output_dir:
+        story.append(Paragraph(f"<b>Output:</b> {telemetry.output_dir}", mono))
+    story.append(Spacer(1, 0.3 * cm))
+
+    # Zeiten je Komponente
+    story.append(Paragraph("Zeiten je Komponente", h1))
+    if telemetry.components:
+        rows = [["Komponente", "Von", "Bis", "Dauer (ms)", "Details"]]
+        for c in telemetry.components:
+            detail = ", ".join(f"{k}={v}" for k, v in c.details.items() if v is not None)
+            von = c.started_at.astimezone().strftime("%Y-%m-%d %H:%M:%S")
+            bis = c.ended_at.astimezone().strftime("%Y-%m-%d %H:%M:%S")
+            rows.append([c.name, von, bis, f"{c.duration_ms:.1f}", detail or "—"])
+        rows.append(["Gesamt", "", "", f"{telemetry.total_ms:.1f}", ""])
+        table = Table(rows, colWidths=[3.5 * cm, 3.2 * cm, 3.2 * cm, 2.2 * cm, 5.4 * cm])
+        table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#eef4fc")),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("FONTSIZE", (0, 0), (-1, -1), 8),
+                    ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ]
+            )
+        )
+        story.append(table)
+    else:
+        story.append(Paragraph("Keine Komponentenzeiten erfasst.", body))
+    story.append(Spacer(1, 0.4 * cm))
+
+    # Token
+    story.append(Paragraph("Token-Verbrauch (KI)", h1))
+    tok = telemetry.tokens
+    if tok.calls:
+        story.append(
+            Paragraph(
+                f"Aufrufe: {tok.calls} · Prompt: {tok.prompt_tokens} · "
+                f"Completion: {tok.completion_tokens} · Gesamt: {tok.total_tokens}"
+                + (f" · Modelle: {', '.join(tok.models)}" if tok.models else ""),
+                body,
+            )
+        )
+    else:
+        story.append(Paragraph("Keine KI-Aufrufe / keine Token erfasst.", body))
+    story.append(Spacer(1, 0.4 * cm))
+
+    # Langfuse
+    story.append(Paragraph("Langfuse", h1))
+    lf = telemetry.langfuse or {}
+    story.append(
+        Paragraph(
+            f"Aktiv: {'Ja' if lf.get('configured') else 'Nein'} · "
+            f"Public Key: {'gesetzt' if lf.get('public_key_set') else 'fehlt'} · "
+            f"Secret Key: {'gesetzt' if lf.get('secret_key_set') else 'fehlt'}<br/>"
+            f"Host: {lf.get('host', '—')}<br/>"
+            f"{lf.get('note', '')}",
+            body,
+        )
+    )
+    story.append(Spacer(1, 0.4 * cm))
+
+    # Warnungen / Fehler
+    story.append(Paragraph("Warnungen", h1))
+    if telemetry.warnings:
+        for w in telemetry.warnings:
+            story.append(Paragraph(f"• {w}", body))
+    else:
+        story.append(Paragraph("Keine Warnungen.", body))
+    story.append(Spacer(1, 0.3 * cm))
+
+    story.append(Paragraph("Fehler", h1))
+    if telemetry.errors:
+        for e in telemetry.errors:
+            story.append(Paragraph(f"• {e}", body))
+    else:
+        story.append(Paragraph("Keine Fehler.", body))
+    story.append(Spacer(1, 0.4 * cm))
+
+    # Links
+    story.append(Paragraph("Links &amp; Pfade", h1))
+    if telemetry.links:
+        for label, target in telemetry.links.items():
+            story.append(Paragraph(f"<b>{label}:</b> {target}", mono))
+    else:
+        story.append(Paragraph("Keine Links erfasst.", body))
+
+    doc.build(story)
+    return path

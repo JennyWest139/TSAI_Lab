@@ -123,8 +123,20 @@ const TSLab = (() => {
     const rep = data.report;
     if (rep?.ok && rep.report_url) {
       html += ` <a href="${rep.report_url}" class="stat-link">Word-Bericht (.docx)</a>`;
+      if (rep.report_pdf_url) {
+        html += ` <a href="${rep.report_pdf_url}" class="stat-link">KI-Bericht (PDF)</a>`;
+      }
+      if (rep.ai_errors?.length) {
+        html += ` <span class="hint"> · KI: ${rep.ai_errors.length} Fehler (Details im .docx)</span>`;
+      } else if (rep.ai_ok === false && rep.llm_calls) {
+        html += ` <span class="hint"> · KI-Auswertung unvollständig</span>`;
+      }
     } else if (rep && !rep.ok) {
       html += ` <span class="hint"> · KI-Bericht: ${rep.message}</span>`;
+    }
+    const runRep = data.run_report;
+    if (runRep?.ok && runRep.url) {
+      html += ` <a href="${runRep.url}" class="stat-link">Laufbericht (PDF)</a>`;
     }
     return html;
   }
@@ -325,7 +337,8 @@ const TSLab = (() => {
           opt.hidden = false;
           return;
         }
-        opt.hidden = opt.dataset.categoryId !== catA;
+        const catB = opt.dataset.categoryId || "";
+        opt.hidden = !!(catB && catB !== catA);
       });
       if (selB.selectedOptions[0]?.hidden) {
         const first = Array.from(selB.options).find((o) => o.value && !o.hidden);
@@ -352,7 +365,7 @@ const TSLab = (() => {
         toast("Bitte Reihen und gültiges Datumsfenster wählen.");
         return;
       }
-      if (!window.TSLabCharts || !window.Plotly || !chartModal) {
+      if (typeof TSLabCharts === "undefined" || !window.Plotly || !chartModal) {
         toast("Grafik nicht verfügbar.");
         return;
       }
@@ -432,10 +445,10 @@ const TSLab = (() => {
     }
 
     async function updateOverlap() {
+      filterSeriesBByA();
       const a = selA?.value;
       const b = selB?.value;
       if (!a || !b || a === b) return;
-      filterSeriesBByA();
       const t0 = performance.now();
       try {
         renderOverlap(await fetchOverlap(a, b, freqSelect?.value || null));
@@ -551,7 +564,7 @@ const TSLab = (() => {
     syncOrderPanel();
 
     async function openTsaWindowChart() {
-      if (!chartModal || !window.TSLabCharts?.renderTsaWindowChart) {
+      if (!chartModal || typeof TSLabCharts === "undefined" || !TSLabCharts.renderTsaWindowChart) {
         toast("Grafik nicht verfügbar.");
         return;
       }
@@ -854,8 +867,9 @@ const TSLab = (() => {
 
   function initCategoriesPage(returnTo) {
     const form = document.getElementById("categoryCreateForm");
-    form?.addEventListener("submit", async (e) => {
-      e.preventDefault();
+    const createBtn = document.getElementById("categoryCreateBtn");
+
+    async function createCategory() {
       const name = document.getElementById("newCategoryName")?.value?.trim();
       if (!name) {
         toast("Bitte Kategorienamen eingeben.");
@@ -878,9 +892,17 @@ const TSLab = (() => {
         return;
       }
       toast(`Kategorie „${data.name}“ angelegt.`);
+      const nameInput = document.getElementById("newCategoryName");
+      if (nameInput) nameInput.value = "";
       if (returnTo) window.location.href = returnTo;
       else window.location.reload();
+    }
+
+    form?.addEventListener("submit", (e) => {
+      e.preventDefault();
+      createCategory();
     });
+    createBtn?.addEventListener("click", createCategory);
 
     document.querySelectorAll("[data-save-category]").forEach((btn) => {
       btn.addEventListener("click", async () => {
@@ -912,8 +934,9 @@ const TSLab = (() => {
 
   function initSeriesEdit(slug) {
     const form = document.getElementById("seriesEditForm");
-    form?.addEventListener("submit", async (e) => {
-      e.preventDefault();
+    const saveBtn = document.getElementById("seriesSaveBtn");
+
+    async function saveSeries() {
       const name = document.getElementById("seriesNameEdit")?.value?.trim();
       const catRaw = document.getElementById("seriesCategory")?.value;
       const res = await fetch(`/api/series/${slug}`, {
@@ -925,13 +948,24 @@ const TSLab = (() => {
         }),
       });
       const data = await res.json();
-      toast(data.ok ? "Gespeichert" : data.message || "Fehler");
-      if (data.ok) window.location.reload();
+      if (!res.ok || data.ok === false) {
+        toast(data.message || "Speichern fehlgeschlagen");
+        return;
+      }
+      toast("Gespeichert");
+      window.location.reload();
+    }
+
+    form?.addEventListener("submit", (e) => {
+      e.preventDefault();
+      saveSeries();
     });
+    saveBtn?.addEventListener("click", saveSeries);
   }
 
   initCore();
   return {
+    initCore,
     initCorrelation,
     initTsa,
     initUpload,

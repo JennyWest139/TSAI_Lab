@@ -25,7 +25,7 @@
         <tr>
           <td>{% if e.is_dir %}<a href="{{ url_for('output_browse', subpath=e.path) }}">{{ e.name }}/</a>{% else %}{{ e.name }}{% endif %}</td>
           <td class="muted">{% if e.is_dir %}Ordner{% else %}{{ e.ext }}{% endif %}</td>
-          <td>{% if not e.is_dir and e.ext in ['.png', '.jpg', '.txt', '.csv', '.pdf', '.docx'] %}<a href="{{ url_for('output_file', subpath=e.path) }}" class="stat-link" target="_blank">öffnen</a>{% endif %}</td>
+          <td>{% if not e.is_dir and e.ext in ['.png', '.jpg', '.txt', '.csv', '.xlsx', '.pdf', '.docx'] %}<a href="{{ url_for('output_file', subpath=e.path) }}" class="stat-link" target="_blank">öffnen</a>{% endif %}</td>
         </tr>
         {% endfor %}
       </tbody>

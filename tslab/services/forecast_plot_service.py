@@ -96,7 +96,7 @@ def _write_level_outputs(
         )
         write_level_forecast_table(
             level_fc,
-            out_dir / f"{file_tag}_forecast{suffix}.csv",
+            out_dir / f"{file_tag}_forecast{suffix}.xlsx",
             holdout_prices=holdout_prices,
         )
     else:
@@ -118,7 +118,7 @@ def _write_level_outputs(
         )
         write_level_forecast_table(
             level_fc,
-            out_dir / f"{file_tag}_forecast{suffix}.csv",
+            out_dir / f"{file_tag}_forecast{suffix}.xlsx",
         )
 
     return format_level_forecast_summary(level_fc)
