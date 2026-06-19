@@ -112,6 +112,9 @@ def preview_upload_bytes(data: bytes, filename: str) -> dict:
             if dates:
                 freq_id, freq_label = detect_frequency_from_dates(dates)
         except ValueError:
+            from tslab.services.silent_errors import log_suppressed_exception
+
+            log_suppressed_exception()
             pass
 
     return {

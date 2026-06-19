@@ -43,6 +43,16 @@ from tslab.services.delete_service import (
     preview_delete_series,
     preview_delete_tsa,
 )
+from tslab.services.entity_categories import (
+    ENTITY_CORRELATION,
+    ENTITY_SERIES,
+    ENTITY_TSA,
+    assign_series_categories,
+    entity_ids_with_category,
+    inherit_categories_from_series_slugs,
+    list_category_ids,
+    list_category_names,
+)
 from tslab.services.entity_tags import (
     ENTITY_CORRELATION,
     ENTITY_SERIES,
@@ -105,6 +115,8 @@ class CorrelationRunView:
     output_dir: str | None = None
     run_name: str | None = None
     tags: tuple[str, ...] = ()
+    category_names: tuple[str, ...] = ()
+    status: str = "fertig"
 
     @property
     def display_name(self) -> str:
@@ -137,6 +149,7 @@ class TsaRunView:
     created_at: datetime
     output_dir: str | None = None
     tags: tuple[str, ...] = ()
+    category_names: tuple[str, ...] = ()
 
     @property
     def display_name(self) -> str:
@@ -156,12 +169,25 @@ class TsaRunView:
         return f"/output/zip/{rel}" if rel else None
 
 
+def _series_category_id_set(session, ts: TimeSeries) -> set[int]:
+    ids = set(list_category_ids(session, ENTITY_SERIES, ts.id))
+    if ts.category_id is not None:
+        ids.add(ts.category_id)
+    return ids
+
+
 def _ts_to_meta(session, ts: TimeSeries, *, dates: list[date] | None = None) -> SeriesMeta:
     if dates is None:
         dates = available_dates_for_series(session, ts.id)
     freq_id, freq_label = detect_frequency_from_dates(dates) if dates else ("MS", "Monatlich")
     tags = tuple(list_tags(session, ENTITY_SERIES, ts.id))
-    cat_name = ts.category.name if ts.category else None
+    cat_ids = list(list_category_ids(session, ENTITY_SERIES, ts.id))
+    if ts.category_id is not None and ts.category_id not in cat_ids:
+        cat_ids.insert(0, ts.category_id)
+    cat_names = list_category_names(session, ENTITY_SERIES, ts.id)
+    if not cat_names and ts.category and ts.category.name:
+        cat_names = [ts.category.name]
+    cat_label = ", ".join(cat_names) if cat_names else None
     return SeriesMeta(
         slug=ts.slug,
         name=ts.name,
@@ -174,8 +200,11 @@ def _ts_to_meta(session, ts: TimeSeries, *, dates: list[date] | None = None) -> 
         source_file=ts.source_file,
         id=ts.id,
         tags=tags,
-        category_id=ts.category_id,
-        category_name=cat_name,
+        category_id=cat_ids[0] if cat_ids else ts.category_id,
+        category_name=cat_label,
+        category_ids=tuple(cat_ids),
+        category_names=tuple(cat_names),
+        created_at=ts.created_at,
     )
 
 
@@ -346,16 +375,17 @@ class WebBackend:
                 rows = [ts for ts in rows if ts.id in ids]
             if ids_filter:
                 id_set = set(ids_filter)
-                rows = [ts for ts in rows if ts.category_id in id_set]
+                rows = [ts for ts in rows if id_set & _series_category_id_set(session, ts)]
             return [_ts_to_meta(session, ts) for ts in rows]
 
     def list_used_categories(self) -> list[dict]:
         """Kategorien, die mindestens einer Zeitreihe zugeordnet sind."""
-        used_ids = {
-            s.category_id
-            for s in self.list_series(include_hidden=True)
-            if s.category_id is not None
-        }
+        if self.uses_mock:
+            return mock.mock_list_categories()
+        used_ids: set[int] = set()
+        with get_session() as session:
+            for ts in list_series(session):
+                used_ids |= _series_category_id_set(session, ts)
         return [c for c in self.list_categories() if c["id"] in used_ids]
 
     def series_by_slug(self, slug: str) -> SeriesMeta | None:
@@ -617,22 +647,27 @@ class WebBackend:
             return {"ok": True}
 
     def update_series_meta(
-        self, slug: str, *, name: str, category_id: int | None = None
+        self,
+        slug: str,
+        *,
+        name: str,
+        category_id: int | None = None,
+        category_ids: list[int] | None = None,
     ) -> dict:
         clean = name.strip()
         if not clean:
             raise ValueError("Name darf nicht leer sein.")
+        ids = list(category_ids if category_ids is not None else ([] if category_id is None else [category_id]))
         if self.uses_mock:
-            return mock.mock_update_series_meta(slug, name=clean, category_id=category_id)
+            return mock.mock_update_series_meta(
+                slug, name=clean, category_id=category_id, category_ids=ids
+            )
         with get_session() as session:
             ts = get_series_by_slug(session, slug)
             if ts is None:
                 raise ValueError(f"Zeitreihe '{slug}' nicht gefunden.")
-            if category_id is not None and get_category(session, category_id) is None:
-                raise ValueError("Kategorie nicht gefunden.")
             ts.name = clean
-            ts.category_id = category_id
-            session.commit()
+            assign_series_categories(session, ts.id, ids)
             session.refresh(ts)
             return {"ok": True, "series": mock.series_to_dict(_ts_to_meta(session, ts))}
 
@@ -658,11 +693,18 @@ class WebBackend:
                     created_at=r.created_at,
                     output_dir=r.output_dir,
                     run_name=suggest_run_name(r.series_a, r.series_b),
+                    category_names=mock.mock_run_category_names("correlation", r.id),
                 )
                 for r in mock.MOCK_CORRELATION_HISTORY
             ]
             if tag:
                 runs = [r for r in runs if tag in r.tags]
+            if category_id is not None:
+                runs = [
+                    r
+                    for r in runs
+                    if mock.mock_run_matches_category("correlation", r.id, [r.series_a, r.series_b], category_id)
+                ]
             return runs
 
         with get_session() as session:
@@ -676,9 +718,18 @@ class WebBackend:
                 if tag and tag not in tags:
                     continue
                 if category_id is not None:
-                    ts_a = get_series_by_slug(session, r.series_a_slug)
-                    if ts_a is None or ts_a.category_id != category_id:
-                        continue
+                    run_cats = set(list_category_ids(session, ENTITY_CORRELATION, r.id))
+                    if category_id not in run_cats:
+                        ts_a = get_series_by_slug(session, r.series_a_slug)
+                        ts_b = get_series_by_slug(session, r.series_b_slug)
+                        match = False
+                        for ts in (ts_a, ts_b):
+                            if ts is not None and category_id in _series_category_id_set(session, ts):
+                                match = True
+                                break
+                        if not match:
+                            continue
+                cat_names = tuple(list_category_names(session, ENTITY_CORRELATION, r.id))
                 views.append(
                     CorrelationRunView(
                         id=r.id,
@@ -694,6 +745,7 @@ class WebBackend:
                         output_dir=r.output_dir,
                         run_name=r.run_name or suggest_run_name(r.series_a_slug, r.series_b_slug),
                         tags=tags,
+                        category_names=cat_names,
                     )
                 )
             return views
@@ -718,11 +770,18 @@ class WebBackend:
                     status=r.status,
                     created_at=r.created_at,
                     output_dir=r.output_dir,
+                    category_names=mock.mock_run_category_names("tsa", r.id),
                 )
                 for r in mock.MOCK_TSA_HISTORY
             ]
             if tag:
                 views = [v for v in views if tag in v.tags]
+            if category_id is not None:
+                views = [
+                    v
+                    for v in views
+                    if mock.mock_run_matches_category("tsa", v.id, [v.series_slug], category_id)
+                ]
             return views
 
         with get_session() as session:
@@ -739,13 +798,16 @@ class WebBackend:
                 if tag and tag not in tags:
                     continue
                 if category_id is not None:
-                    ts = get_series_by_slug(session, r.series_slug)
-                    if ts is None or ts.category_id != category_id:
-                        continue
+                    run_cats = set(list_category_ids(session, ENTITY_TSA, r.id))
+                    if category_id not in run_cats:
+                        ts = get_series_by_slug(session, r.series_slug)
+                        if ts is None or category_id not in _series_category_id_set(session, ts):
+                            continue
                 try:
                     models = json.loads(r.models)
                 except json.JSONDecodeError:
                     models = ["arma-garch"]
+                cat_names = tuple(list_category_names(session, ENTITY_TSA, r.id))
                 views.append(
                     TsaRunView(
                         id=r.id,
@@ -759,6 +821,7 @@ class WebBackend:
                         created_at=r.created_at,
                         output_dir=r.output_dir,
                         tags=tags,
+                        category_names=cat_names,
                     )
                 )
             if views:

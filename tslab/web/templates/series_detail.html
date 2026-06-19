@@ -8,48 +8,62 @@
 {% endblock %}
 
 {% block content %}
-<div class="grid two-col">
-  <section class="card">
-    <h2>Stammdaten</h2>
-    <form id="seriesEditForm" action="#" method="post" onsubmit="return false;">
+<form id="seriesEditForm" action="#" method="post" onsubmit="return false;">
+  <div class="grid two-col">
+    <section class="card">
+      <h2>Stammdaten</h2>
       <div class="field-row">
-        <label for="seriesNameEdit">Anzeigename</label>
+        <label for="seriesNameEdit">Name</label>
         <input type="text" id="seriesNameEdit" name="name" value="{{ series.label_de }}" required maxlength="120">
       </div>
       <div class="field-row">
         <label>Slug (fest)</label>
         <input type="text" class="mono" value="{{ series.slug }}" disabled>
       </div>
-      <div class="field-row">
-        <label for="seriesCategory">Kategorie</label>
-        <select id="seriesCategory" name="category_id">
-          <option value="">— keine —</option>
-          {% for c in categories %}
-          <option value="{{ c.id }}" {% if series.category_id == c.id %}selected{% endif %}>{{ c.name }}</option>
-          {% endfor %}
-        </select>
-        <p class="hint"><a href="{{ url_for('categories_page', return_to=request.path) }}">Neue Kategorie anlegen</a></p>
-      </div>
-      <div class="form-actions">
-        <button type="button" id="seriesSaveBtn" class="btn btn-primary">Speichern</button>
-      </div>
-    </form>
-    <dl class="meta-dl" style="margin-top:1rem;">
-      <dt>Zeitraum</dt><dd>{{ series.first_date }} → {{ series.last_date }}</dd>
-      <dt>Beobachtungen</dt><dd>{{ series.observation_count }}</dd>
-      <dt>Rhythmus</dt><dd>{{ series.frequency_label }}</dd>
-    </dl>
-    <p class="hint"><a href="{{ url_for('series_page') }}">← Alle Zeitreihen</a></p>
-  </section>
+      <dl class="meta-dl" style="margin-top:1rem;">
+        <dt>Fenster</dt><dd class="mono">{{ series.first_date }} → {{ series.last_date }}</dd>
+        <dt>Beobachtungen</dt><dd>{{ series.observation_count }}</dd>
+        <dt>Rhythmus</dt><dd>{{ series.frequency_label }}</dd>
+        <dt>Status</dt><dd><span class="badge badge-ok">fertig</span></dd>
+      </dl>
+      <p class="hint"><a href="{{ url_for('series_page') }}">← Alle Zeitreihen</a></p>
+    </section>
+
+    <section class="card">
+      <h2>Anzeige</h2>
+      <label class="checkbox-row">
+        <input type="checkbox" id="showReturns">
+        Kontinuierliche Renditen als Zusatz anzeigen
+      </label>
+    </section>
+  </div>
 
   <section class="card">
-    <h2>Anzeige</h2>
-    <label class="checkbox-row">
-      <input type="checkbox" id="showReturns">
-      Kontinuierliche Renditen als Zusatz anzeigen
-    </label>
+    <h2>Kategorien</h2>
+    <div class="dual-list-picker">
+      <div class="dual-list-col">
+        <label for="categorySelected">Zugeordnet</label>
+        <select id="categorySelected" multiple size="8"></select>
+      </div>
+      <div class="dual-list-actions">
+        <button type="button" class="btn btn-ghost btn-sm" id="catAddOne" title="Auswählen">&lt;</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="catAddAll" title="Alle auswählen">&lt;&lt;</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="catRemOne" title="Entfernen">&gt;</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="catRemAll" title="Alle entfernen">&gt;&gt;</button>
+      </div>
+      <div class="dual-list-col">
+        <label for="categoryAvailable">Verfügbar</label>
+        <select id="categoryAvailable" multiple size="8"></select>
+      </div>
+    </div>
+    <p class="hint" style="margin-top:0.75rem;">
+      <a href="{{ url_for('categories_page', return_to=request.path) }}">Neue Kategorie anlegen</a>
+    </p>
+    <div class="form-actions">
+      <button type="button" id="seriesSaveBtn" class="btn btn-primary">Speichern</button>
+    </div>
   </section>
-</div>
+</form>
 
 <section class="card chart-card">
   <h2>Interaktive Grafik</h2>
@@ -62,7 +76,10 @@
 <script src="{{ url_for('static', filename='js/charts.js') }}"></script>
 <script>
   TSLab.initCore();
-  TSLab.initSeriesEdit({{ series.slug | tojson }});
+  TSLab.initSeriesEdit({{ series.slug | tojson }}, {
+    categoryIds: {{ series.category_ids | default([]) | list | tojson }},
+    allCategories: {{ categories | tojson }}
+  });
   TSLabCharts.initSeriesDetail({{ series.slug | tojson }});
 </script>
 {% endblock %}

@@ -15,15 +15,19 @@ def month_key(d: date) -> tuple[int, int]:
     return (d.year, d.month)
 
 
+def month_start_stamp(year: int, month: int) -> str:
+    return date(year, month, 1).isoformat()
+
+
 def month_end_stamp(year: int, month: int) -> str:
     return pd.Period(year=year, month=month, freq="M").to_timestamp("M").date().isoformat()
 
 
 def common_month_overlap_stamps(dates_a: list[date], dates_b: list[date]) -> list[str]:
-    """Kalendermonate mit Daten in beiden Reihen; Rueckgabe als Monatsende (ISO)."""
+    """Kalendermonate mit Daten in beiden Reihen; Stempel = 1. des Monats (MS)."""
     a_months = {month_key(d) for d in dates_a}
     b_months = {month_key(d) for d in dates_b}
-    return [month_end_stamp(y, m) for y, m in sorted(a_months & b_months)]
+    return [month_start_stamp(y, m) for y, m in sorted(a_months & b_months)]
 
 
 def collapse_series_to_month_end(series: pd.Series) -> pd.Series:
@@ -43,11 +47,11 @@ def to_month_end_timestamp(value: str | pd.Timestamp) -> pd.Timestamp:
 
 
 def snap_to_overlap_stamp(overlap_dates: list[str], value: str) -> str:
-    """ISO-Datum auf gemeinsamen Monatsstempel abbilden (falls Tag abweicht)."""
+    """ISO-Datum auf gemeinsamen Monatsstempel abbilden (1. des Monats)."""
     if value in overlap_dates:
         return value
     d = date.fromisoformat(value)
-    candidate = month_end_stamp(d.year, d.month)
+    candidate = month_start_stamp(d.year, d.month)
     if candidate in overlap_dates:
         return candidate
     raise ValueError(

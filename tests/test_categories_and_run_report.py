@@ -15,7 +15,7 @@ from tslab.web import mock_data as mock
 class MockCategoryTests(unittest.TestCase):
     def setUp(self) -> None:
         mock._mock_categories[:] = [{"id": 1, "name": mock.PROTECTED_CATEGORY}]
-        mock._mock_series_category.clear()
+        mock._mock_series_categories.clear()
         mock._mock_next_category_id = 2
 
     def test_create_and_assign(self) -> None:
@@ -23,9 +23,9 @@ class MockCategoryTests(unittest.TestCase):
         self.assertEqual(created["name"], "Makro")
         cats = mock.mock_list_categories()
         self.assertTrue(any(c["name"] == "Makro" for c in cats))
-        result = mock.mock_update_series_meta("pdax", name="PDAX", category_id=created["id"])
+        result = mock.mock_update_series_meta("pdax", name="PDAX", category_ids=[created["id"]])
         self.assertEqual(result["series"]["category_name"], "Makro")
-        filtered = mock.mock_list_series(category_id=created["id"])
+        filtered = mock.mock_list_series(category_ids=[created["id"]])
         self.assertEqual(len(filtered), 1)
         self.assertEqual(filtered[0].slug, "pdax")
 

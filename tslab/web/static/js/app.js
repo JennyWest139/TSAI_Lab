@@ -932,20 +932,105 @@ const TSLab = (() => {
     });
   }
 
-  function initSeriesEdit(slug) {
+  function initListToolbar({
+    categoryFilterId,
+    searchInputId,
+    tableId,
+    showHiddenId,
+    rowSelector = "tbody tr",
+  }) {
+    const searchInput = document.getElementById(searchInputId);
+    const table = document.getElementById(tableId);
+    const applySearch = () => {
+      const q = (searchInput?.value || "").trim().toLowerCase();
+      table?.querySelectorAll(rowSelector).forEach((row) => {
+        const hay = (row.dataset.search || row.textContent || "").toLowerCase();
+        row.hidden = !!(q && !hay.includes(q));
+      });
+    };
+    searchInput?.addEventListener("input", applySearch);
+
+    document.getElementById(categoryFilterId)?.addEventListener("change", (e) => {
+      const v = e.target.value;
+      const url = new URL(window.location.href);
+      if (v) url.searchParams.set("category_id", v);
+      else url.searchParams.delete("category_id");
+      window.location.href = url.toString();
+    });
+
+    document.getElementById(showHiddenId)?.addEventListener("change", (e) => {
+      const url = new URL(window.location.href);
+      if (e.target.checked) url.searchParams.set("include_hidden", "1");
+      else url.searchParams.delete("include_hidden");
+      window.location.href = url.toString();
+    });
+  }
+
+  function wireCategoryDualList({ selectedEl, availableEl, addOne, addAll, remOne, remAll }) {
+    function moveSelected(from, to) {
+      Array.from(from.selectedOptions).forEach((opt) => {
+        to.appendChild(opt);
+      });
+      sortSelect(from);
+      sortSelect(to);
+    }
+    function moveAll(from, to) {
+      Array.from(from.options).forEach((opt) => to.appendChild(opt));
+      sortSelect(from);
+      sortSelect(to);
+    }
+    function sortSelect(el) {
+      const opts = Array.from(el.options).sort((a, b) => a.text.localeCompare(b.text, "de"));
+      el.innerHTML = "";
+      opts.forEach((o) => el.appendChild(o));
+    }
+    addOne?.addEventListener("click", () => moveSelected(availableEl, selectedEl));
+    addAll?.addEventListener("click", () => moveAll(availableEl, selectedEl));
+    remOne?.addEventListener("click", () => moveSelected(selectedEl, availableEl));
+    remAll?.addEventListener("click", () => moveAll(selectedEl, availableEl));
+    return {
+      selectedIds() {
+        return Array.from(selectedEl.options).map((o) => parseInt(o.value, 10)).filter(Boolean);
+      },
+    };
+  }
+
+  function initSeriesEdit(slug, opts = {}) {
     const form = document.getElementById("seriesEditForm");
     const saveBtn = document.getElementById("seriesSaveBtn");
+    const selectedEl = document.getElementById("categorySelected");
+    const availableEl = document.getElementById("categoryAvailable");
+    const selectedIds = new Set(opts.categoryIds || []);
+    const allCategories = opts.allCategories || [];
+
+    if (selectedEl && availableEl) {
+      allCategories.forEach((c) => {
+        const opt = document.createElement("option");
+        opt.value = String(c.id);
+        opt.textContent = c.name;
+        if (selectedIds.has(c.id)) selectedEl.appendChild(opt);
+        else availableEl.appendChild(opt);
+      });
+    }
+
+    const dual = selectedEl && availableEl
+      ? wireCategoryDualList({
+          selectedEl,
+          availableEl,
+          addOne: document.getElementById("catAddOne"),
+          addAll: document.getElementById("catAddAll"),
+          remOne: document.getElementById("catRemOne"),
+          remAll: document.getElementById("catRemAll"),
+        })
+      : null;
 
     async function saveSeries() {
       const name = document.getElementById("seriesNameEdit")?.value?.trim();
-      const catRaw = document.getElementById("seriesCategory")?.value;
+      const category_ids = dual ? dual.selectedIds() : [];
       const res = await fetch(`/api/series/${slug}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name,
-          category_id: catRaw || null,
-        }),
+        body: JSON.stringify({ name, category_ids }),
       });
       const data = await res.json();
       if (!res.ok || data.ok === false) {
@@ -971,6 +1056,7 @@ const TSLab = (() => {
     initUpload,
     initCategoriesPage,
     initSeriesEdit,
+    initListToolbar,
     toast,
   };
 })();

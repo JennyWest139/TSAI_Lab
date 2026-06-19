@@ -387,6 +387,35 @@ input:focus, select:focus {
 .badge-sm { font-size: 0.68rem; margin-right: 0.2rem; }
 .badge-ok { background: var(--success-bg); color: var(--success); }
 
+.list-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+.list-toolbar-actions { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; }
+.list-toolbar label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.85rem; }
+.list-toolbar input[type="search"] { min-width: 14rem; }
+
+.dual-list-picker {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 0.75rem;
+  align-items: stretch;
+  max-width: 42rem;
+}
+.dual-list-col label { display: block; font-size: 0.85rem; margin-bottom: 0.35rem; font-weight: 600; }
+.dual-list-col select { width: 100%; min-height: 10rem; }
+.dual-list-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  justify-content: center;
+  padding-top: 1.5rem;
+}
+
 /* Timeline overlap */
 .overlap-viz { margin-top: 0.5rem; }
 .timeline { display: flex; flex-direction: column; gap: 0.65rem; margin-bottom: 1rem; }

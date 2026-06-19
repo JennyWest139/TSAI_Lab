@@ -5,7 +5,7 @@ from __future__ import annotations
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
-from tslab.db.models import Category, TimeSeries
+from tslab.db.models import Category, EntityCategory, TimeSeries
 
 PROTECTED_CATEGORY = "Reporting"
 
@@ -40,10 +40,18 @@ def is_protected_category(category: Category | None) -> bool:
 
 def series_has_protected_category(session: Session, series_id: int) -> bool:
     ts = session.get(TimeSeries, series_id)
-    if ts is None or ts.category_id is None:
+    if ts is None:
         return False
-    cat = get_category(session, ts.category_id)
-    return is_protected_category(cat)
+    from tslab.services.entity_categories import ENTITY_SERIES, list_category_ids
+
+    cat_ids = list_category_ids(session, ENTITY_SERIES, series_id)
+    if ts.category_id is not None and ts.category_id not in cat_ids:
+        cat_ids = [ts.category_id, *cat_ids]
+    for cid in cat_ids:
+        cat = get_category(session, cid)
+        if is_protected_category(cat):
+            return True
+    return False
 
 
 def create_category(session: Session, name: str) -> Category:
@@ -85,6 +93,9 @@ def delete_category(session: Session, category_id: int) -> None:
         raise ValueError("Kategorie nicht gefunden.")
     if is_protected_category(row):
         raise ValueError(f"Kategorie '{PROTECTED_CATEGORY}' darf nicht gelöscht werden.")
+    session.execute(
+        delete(EntityCategory).where(EntityCategory.category_id == category_id)
+    )
     session.execute(
         update(TimeSeries).where(TimeSeries.category_id == category_id).values(category_id=None)
     )

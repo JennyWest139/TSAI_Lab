@@ -56,6 +56,21 @@ def migrate_schema() -> None:
     Base.metadata.create_all(engine)
     migrate_columns()
     _seed_categories()
+    _backfill_entity_categories()
+
+
+def _backfill_entity_categories() -> None:
+    try:
+        from sqlalchemy.orm import Session
+
+        from tslab.services.entity_categories import backfill_series_from_primary
+
+        with Session(get_engine()) as session:
+            n = backfill_series_from_primary(session)
+            if n:
+                _log.info("Schema migration: %s series category links backfilled", n)
+    except Exception as exc:
+        _log.warning("Entity-Category-Backfill uebersprungen: %s", exc)
 
 
 def _seed_categories() -> None:

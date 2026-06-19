@@ -5,17 +5,16 @@
 
 {% block content %}
 <section class="card">
-  <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;">
+  <div class="card-header list-toolbar">
     <h2>Läufe</h2>
-    <div style="display:flex;gap:0.5rem;align-items:center;">
+    <div class="list-toolbar-actions">
       <select id="categoryFilter">
         <option value="">Alle Kategorien</option>
         {% for c in categories %}
         <option value="{{ c.id }}" {% if active_category_id == c.id %}selected{% endif %}>{{ c.name }}</option>
         {% endfor %}
       </select>
-      <input type="text" id="tagFilter" placeholder="Tag filtern" list="tagSuggestions">
-      <datalist id="tagSuggestions"></datalist>
+      <input type="search" id="listSearch" placeholder="Suche (Name, Serie …)">
       <a href="{{ url_for('correlation_page') }}" class="btn btn-ghost">Neue Korrelation</a>
     </div>
   </div>
@@ -25,10 +24,11 @@
         <tr>
           <th>Datum</th>
           <th>Bezeichnung</th>
-          <th>Tags</th>
+          <th>Kategorien</th>
           <th>Serie A</th>
           <th>Serie B</th>
           <th>Fenster</th>
+          <th>Status</th>
           <th>Best |r|</th>
           <th>Output</th>
           <th></th>
@@ -36,13 +36,14 @@
       </thead>
       <tbody>
         {% for r in runs %}
-        <tr data-tags="{{ r.tags|join(',') }}">
+        <tr data-search="{{ (r.display_name ~ ' ' ~ r.series_a ~ ' ' ~ r.series_b ~ ' ' ~ (r.category_names|join(' ')))|lower }}">
           <td class="mono">{{ r.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
           <td>{{ r.display_name }}</td>
-          <td>{{ r.tags|join(', ') or '—' }}</td>
+          <td>{{ r.category_names|join(', ') or '—' }}</td>
           <td>{{ r.series_a }}</td>
           <td>{{ r.series_b }}</td>
           <td class="mono">{{ r.start_date }} → {{ r.end_date }}</td>
+          <td><span class="badge badge-ok">{{ r.status }}</span></td>
           <td>{% if r.best_r is not none %}{{ '%.3f'|format(r.best_r|abs) }}{% if r.best_lag is not none %} <span class="muted">L{{ r.best_lag }}</span>{% endif %}{% else %}—{% endif %}</td>
           <td>
             {% if r.browse_url %}<a href="{{ r.browse_url }}" class="stat-link">Ordner</a>{% endif %}
@@ -55,7 +56,7 @@
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="9" class="muted">Keine Einträge — <a href="{{ url_for('correlation_page') }}">Korrelation starten</a></td></tr>
+        <tr><td colspan="10" class="muted">Keine Einträge — <a href="{{ url_for('correlation_page') }}">Korrelation starten</a></td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -66,23 +67,6 @@
 {% block scripts %}
 <script>
   TSLab.initCore();
-  (async () => {
-    const tags = await (await fetch("/api/tags/suggest")).json();
-    const dl = document.getElementById("tagSuggestions");
-    tags.forEach((t) => { const o = document.createElement("option"); o.value = t; dl?.appendChild(o); });
-    document.getElementById("tagFilter")?.addEventListener("input", (e) => {
-      const tag = e.target.value.trim().toLowerCase();
-      document.querySelectorAll("#corrHistoryTable tbody tr[data-tags]").forEach((row) => {
-        row.hidden = !!(tag && !(row.dataset.tags || "").toLowerCase().split(",").map((x) => x.trim()).includes(tag));
-      });
-    });
-    document.getElementById("categoryFilter")?.addEventListener("change", (e) => {
-      const v = e.target.value;
-      const url = new URL(window.location.href);
-      if (v) url.searchParams.set("category_id", v);
-      else url.searchParams.delete("category_id");
-      window.location.href = url.toString();
-    });
-  })();
+  TSLab.initListToolbar({ categoryFilterId: "categoryFilter", searchInputId: "listSearch", tableId: "corrHistoryTable" });
 </script>
 {% endblock %}

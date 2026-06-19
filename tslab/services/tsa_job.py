@@ -588,11 +588,22 @@ def run_tsa_job(
         session.commit()
         session.refresh(row)
         history_id = row.id
+        from tslab.services.entity_categories import ENTITY_TSA, inherit_categories_from_series_slugs
+
+        inherit_categories_from_series_slugs(
+            session,
+            entity_type=ENTITY_TSA,
+            entity_id=row.id,
+            series_slugs=[series_slug],
+        )
         try:
             persist_tsa_output_forecasts(
                 session, tsa_history_id=history_id, output_dir=out, models_run=models_run
             )
         except Exception:
+            from tslab.services.silent_errors import log_suppressed_exception
+
+            log_suppressed_exception()
             pass
 
     return TsaJobResult(

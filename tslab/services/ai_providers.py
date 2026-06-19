@@ -248,4 +248,7 @@ def flush_langfuse() -> None:
 
         Langfuse().flush()
     except Exception:
+        from tslab.services.silent_errors import log_suppressed_exception
+
+        log_suppressed_exception()
         pass

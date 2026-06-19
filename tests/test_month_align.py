@@ -20,7 +20,7 @@ class MonthAlignTests(unittest.TestCase):
         a = [date(2000, 1, 1), date(2000, 2, 1)]
         b = [date(2000, 1, 31), date(2000, 2, 29)]
         stamps = common_month_overlap_stamps(a, b)
-        self.assertEqual(stamps, ["2000-01-31", "2000-02-29"])
+        self.assertEqual(stamps, ["2000-01-01", "2000-02-01"])
 
     def test_align_monthly_pair(self) -> None:
         idx_a = pd.DatetimeIndex(["2000-01-01", "2000-02-01"])
@@ -34,9 +34,9 @@ class MonthAlignTests(unittest.TestCase):
         self.assertEqual(float(aligned_b.iloc[0]), 20.0)
 
     def test_snap_to_overlap_stamp(self) -> None:
-        stamps = ["2000-01-31", "2000-02-29"]
-        self.assertEqual(snap_to_overlap_stamp(stamps, "2000-01-31"), "2000-01-31")
-        self.assertEqual(snap_to_overlap_stamp(stamps, "2000-01-01"), "2000-01-31")
+        stamps = ["2000-01-01", "2000-02-01"]
+        self.assertEqual(snap_to_overlap_stamp(stamps, "2000-01-01"), "2000-01-01")
+        self.assertEqual(snap_to_overlap_stamp(stamps, "2000-01-31"), "2000-01-01")
 
     def test_narrower_series_window(self) -> None:
         """Kuerzere Reihe bestimmt Vorbelegung (z. B. uni vs. link)."""

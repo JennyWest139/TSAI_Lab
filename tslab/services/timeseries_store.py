@@ -335,6 +335,9 @@ def load_pdax_full(
         try:
             return load_series_full_pandas(session, "pdax")
         except LookupError:
+            from tslab.services.silent_errors import log_suppressed_exception
+
+            log_suppressed_exception()
             pass
     return load_pdax_series(csv_path)
 

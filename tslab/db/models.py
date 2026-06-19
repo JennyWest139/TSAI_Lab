@@ -164,3 +164,26 @@ class EntityTag(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+
+
+class EntityCategory(Base):
+    """n:m Zuordnung Kategorien zu Serie, Korrelation oder TSA-Lauf."""
+
+    __tablename__ = "entity_categories"
+    __table_args__ = (
+        UniqueConstraint(
+            "entity_type", "entity_id", "category_id", name="uq_entity_categories"
+        ),
+        Index("ix_entity_categories_cat", "category_id"),
+        Index("ix_entity_categories_entity", "entity_type", "entity_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    entity_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    entity_id: Mapped[int] = mapped_column(nullable=False)
+    category_id: Mapped[int] = mapped_column(ForeignKey("categories.id"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    category: Mapped[Category] = relationship()

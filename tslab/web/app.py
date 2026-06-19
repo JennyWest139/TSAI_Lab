@@ -83,13 +83,13 @@ def create_app(*, use_mock: bool = False) -> Flask:
 
     @app.get("/series")
     def series_page():
-        cat_ids = _category_ids_arg()
+        cat_id = _category_id_arg()
         return render_template(
             "series.html",
             page="series",
-            series=backend.list_series(category_ids=cat_ids or None),
+            series=backend.list_series(category_ids=[cat_id] if cat_id else None),
             categories=backend.list_used_categories(),
-            active_category_ids=cat_ids,
+            active_category_id=cat_id,
         )
 
     @app.get("/categories")
@@ -479,6 +479,14 @@ def create_app(*, use_mock: bool = False) -> Flask:
     def api_series_update(slug: str):
         body = request.get_json(silent=True) or {}
         try:
+            cat_ids_raw = body.get("category_ids")
+            category_ids: list[int] | None = None
+            if cat_ids_raw is not None:
+                category_ids = []
+                for raw in cat_ids_raw if isinstance(cat_ids_raw, list) else []:
+                    if raw in (None, "", "null"):
+                        continue
+                    category_ids.append(int(raw))
             cat = body.get("category_id")
             category_id = int(cat) if cat not in (None, "", "null") else None
             return jsonify(
@@ -486,6 +494,7 @@ def create_app(*, use_mock: bool = False) -> Flask:
                     slug,
                     name=str(body.get("name", "")),
                     category_id=category_id,
+                    category_ids=category_ids,
                 )
             )
         except ValueError as exc:
