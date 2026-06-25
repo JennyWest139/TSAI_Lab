@@ -3,6 +3,7 @@
  */
 const TSLab = (() => {
   const STORAGE_THEME = "tslab-theme";
+  let askRateLimit = null;
 
   function initCore() {
     const saved = localStorage.getItem(STORAGE_THEME) || "light";
@@ -28,6 +29,8 @@ const TSLab = (() => {
     });
 
     initDeleteModal();
+    initTagShuttle();
+    askRateLimit = initRateLimitModal();
   }
 
   function initDeleteModal() {
@@ -120,25 +123,186 @@ const TSLab = (() => {
     if (browse) {
       html += ` <a href="${browse}" class="stat-link">Output-Ordner</a>`;
     }
-    const rep = data.report;
-    if (rep?.ok && rep.report_url) {
-      html += ` <a href="${rep.report_url}" class="stat-link">Word-Bericht (.docx)</a>`;
-      if (rep.report_pdf_url) {
-        html += ` <a href="${rep.report_pdf_url}" class="stat-link">KI-Bericht (PDF)</a>`;
+    const reps = data.reports || (data.report ? [data.report] : []);
+    for (const rep of reps) {
+      if (rep?.ok && rep.report_url) {
+        const label = rep.target && rep.target !== "." ? rep.target : "Bericht";
+        html += ` <a href="${rep.report_url}" class="stat-link">${label} (.docx)</a>`;
+        if (rep.report_pdf_url) {
+          html += ` <a href="${rep.report_pdf_url}" class="stat-link">${label} (PDF)</a>`;
+        }
       }
-      if (rep.ai_errors?.length) {
-        html += ` <span class="hint"> · KI: ${rep.ai_errors.length} Fehler (Details im .docx)</span>`;
-      } else if (rep.ai_ok === false && rep.llm_calls) {
-        html += ` <span class="hint"> · KI-Auswertung unvollständig</span>`;
+    }
+    const single = data.report;
+    if (!reps.length && single?.ok && single.report_url) {
+      html += ` <a href="${single.report_url}" class="stat-link">Word-Bericht (.docx)</a>`;
+      if (single.report_pdf_url) {
+        html += ` <a href="${single.report_pdf_url}" class="stat-link">KI-Bericht (PDF)</a>`;
       }
-    } else if (rep && !rep.ok) {
-      html += ` <span class="hint"> · KI-Bericht: ${rep.message}</span>`;
+    }
+    const allErrors = reps.flatMap((r) => r?.ai_errors || []);
+    if (allErrors.length) {
+      html += ` <span class="hint"> · KI: ${allErrors.length} Fehler (Details im .docx)</span>`;
+    } else if (single?.ai_errors?.length) {
+      html += ` <span class="hint"> · KI: ${single.ai_errors.length} Fehler (Details im .docx)</span>`;
+    }
+    if (data.rate_limit_pause_count) {
+      html += ` <span class="hint"> · ${data.rate_limit_pause_count}× 1-Min.-Pause</span>`;
     }
     const runRep = data.run_report;
     if (runRep?.ok && runRep.url) {
       html += ` <a href="${runRep.url}" class="stat-link">Laufbericht (PDF)</a>`;
     }
     return html;
+  }
+
+  function initRateLimitModal() {
+    const modal = document.getElementById("rateLimitModal");
+    const msgEl = document.getElementById("rateLimitMessage");
+    const countdownEl = document.getElementById("rateLimitCountdown");
+    const pauseBtn = document.getElementById("rateLimitPauseBtn");
+    const finishBtn = document.getElementById("rateLimitFinishBtn");
+    let resolveChoice = null;
+    let countdownTimer = null;
+
+    function hide() {
+      modal.hidden = true;
+      if (countdownTimer) {
+        clearInterval(countdownTimer);
+        countdownTimer = null;
+      }
+    }
+
+    pauseBtn?.addEventListener("click", () => {
+      hide();
+      resolveChoice?.("pause");
+      resolveChoice = null;
+    });
+    finishBtn?.addEventListener("click", () => {
+      hide();
+      resolveChoice?.("finish");
+      resolveChoice = null;
+    });
+
+    return function askRateLimit(stepResult) {
+      return new Promise((resolve) => {
+        resolveChoice = resolve;
+        if (msgEl) {
+          msgEl.textContent = stepResult.message || "Nach 5 KI-Anfragen Pause empfohlen.";
+        }
+        const seconds = stepResult.pause_seconds || 60;
+        let left = seconds;
+        if (countdownEl) {
+          countdownEl.textContent = `Empfohlene Wartezeit: ${left} Sekunden`;
+        }
+        modal.hidden = false;
+        countdownTimer = setInterval(() => {
+          left -= 1;
+          if (countdownEl) {
+            countdownEl.textContent =
+              left > 0
+                ? `Empfohlene Wartezeit: ${left} Sekunden`
+                : "Pause kann jetzt fortgesetzt werden.";
+          }
+          if (left <= 0 && countdownTimer) {
+            clearInterval(countdownTimer);
+            countdownTimer = null;
+          }
+        }, 1000);
+      });
+    };
+  }
+
+  async function runDeferredAiReports(runData) {
+    const outputDir = runData.job?.output_dir;
+    const modelId = runData.report_model;
+    if (!outputDir || !modelId) return runData;
+
+    const runType = runData.run_type_label || "Analyse";
+
+    const prep = await fetch("/api/report/session/prepare", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        output_dir: outputDir,
+        report_model: modelId,
+        run_type: runType,
+        analysis_mode: analysisMode,
+      }),
+    });
+    const prepData = await prep.json();
+    if (!prepData.ok) {
+      runData.report = prepData;
+      runData.message += ` · KI-Bericht: ${prepData.message}`;
+      return runData;
+    }
+
+    toast("KI-Berichte werden erstellt …");
+    let reportResult = null;
+
+    while (true) {
+      const stepRes = await fetch("/api/report/session/step", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ output_dir: outputDir }),
+      });
+      const stepData = await stepRes.json();
+      if (stepData.status === "awaiting_user") {
+        const choice = askRateLimit
+          ? await askRateLimit(stepData)
+          : "pause";
+        const actionRes = await fetch("/api/report/session/step", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ output_dir: outputDir, action: choice }),
+        });
+        const actionData = await actionRes.json();
+        if (actionData.status === "done") {
+          reportResult = actionData;
+          break;
+        }
+        if (actionData.status === "awaiting_user") {
+          continue;
+        }
+        if (!actionData.ok) {
+          reportResult = actionData;
+          break;
+        }
+        continue;
+      }
+      if (stepData.status === "done") {
+        reportResult = stepData;
+        break;
+      }
+      if (!stepData.ok) {
+        reportResult = stepData;
+        break;
+      }
+    }
+
+    if (reportResult) {
+      runData.reports = reportResult.reports;
+      runData.report = reportResult.report || reportResult.reports?.[0];
+      runData.rate_limit_pause_count = reportResult.rate_limit_pause_count;
+      if (reportResult.ok) {
+        runData.message += ` · ${reportResult.message}`;
+        if (reportResult.ai_errors?.length) {
+          runData.message += ` ⚠ ${reportResult.ai_errors.length} KI-Fehler`;
+        }
+      }
+    }
+
+    const fin = await fetch("/api/run/finalize", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ output_dir: outputDir, report_result: reportResult }),
+    });
+    const finData = await fin.json();
+    if (finData.ok && finData.run_report) {
+      runData.run_report = finData.run_report;
+      runData.message += ` · ${finData.run_report.message || "Laufbericht"}`;
+    }
+    return runData;
   }
 
   function parseDate(iso) {
@@ -329,21 +493,11 @@ const TSLab = (() => {
     let overlapDates = [];
 
     function filterSeriesBByA() {
-      const catA = selA?.selectedOptions?.[0]?.dataset?.categoryId || "";
       if (!selB) return;
       Array.from(selB.options).forEach((opt) => {
         if (!opt.value) return;
-        if (!catA) {
-          opt.hidden = false;
-          return;
-        }
-        const catB = opt.dataset.categoryId || "";
-        opt.hidden = !!(catB && catB !== catA);
+        opt.hidden = false;
       });
-      if (selB.selectedOptions[0]?.hidden) {
-        const first = Array.from(selB.options).find((o) => o.value && !o.hidden);
-        if (first) selB.value = first.value;
-      }
     }
 
     function refreshWindowBar() {
@@ -483,12 +637,16 @@ const TSLab = (() => {
         body: JSON.stringify(payload),
       });
       const data = await res.json();
+      let result = data;
+      if (data.report_deferred) {
+        result = await runDeferredAiReports(data);
+      }
       const panel = document.getElementById("corrResult");
       if (panel) {
         panel.hidden = false;
-        panel.innerHTML = formatRunResult(data);
+        panel.innerHTML = formatRunResult(result);
       }
-      toast(data.ok ? data.message : data.message || "Fehler");
+      toast(result.ok ? result.message : result.message || "Fehler");
     });
   }
 
@@ -612,12 +770,16 @@ const TSLab = (() => {
         body: JSON.stringify(payload),
       });
       const data = await res.json();
+      let result = data;
+      if (data.report_deferred) {
+        result = await runDeferredAiReports(data);
+      }
       const panel = document.getElementById("tsaResult");
       if (panel) {
         panel.hidden = false;
-        panel.innerHTML = formatRunResult(data);
+        panel.innerHTML = formatRunResult(result);
       }
-      toast(data.ok ? data.message : data.message || "Fehler");
+      toast(result.ok ? result.message : result.message || "Fehler");
     });
   }
 
@@ -872,7 +1034,7 @@ const TSLab = (() => {
     async function createCategory() {
       const name = document.getElementById("newCategoryName")?.value?.trim();
       if (!name) {
-        toast("Bitte Kategorienamen eingeben.");
+        toast("Bitte Tag-Namen eingeben.");
         return;
       }
       const res = await fetch("/api/categories", {
@@ -891,7 +1053,7 @@ const TSLab = (() => {
         toast(data.message || "Anlegen fehlgeschlagen");
         return;
       }
-      toast(`Kategorie „${data.name}“ angelegt.`);
+      toast(`Tag „${data.name}“ angelegt.`);
       const nameInput = document.getElementById("newCategoryName");
       if (nameInput) nameInput.value = "";
       if (returnTo) window.location.href = returnTo;
@@ -923,7 +1085,7 @@ const TSLab = (() => {
     document.querySelectorAll("[data-delete-category]").forEach((btn) => {
       btn.addEventListener("click", async () => {
         const id = btn.dataset.deleteCategory;
-        if (!confirm("Kategorie wirklich löschen? Zuordnungen werden entfernt.")) return;
+        if (!confirm("Tag wirklich löschen? Zuordnungen werden entfernt.")) return;
         const res = await fetch(`/api/categories/${id}`, { method: "DELETE" });
         const data = await res.json();
         if (data.ok) window.location.reload();
@@ -933,12 +1095,14 @@ const TSLab = (() => {
   }
 
   function initListToolbar({
+    tagFilterId,
     categoryFilterId,
     searchInputId,
     tableId,
     showHiddenId,
     rowSelector = "tbody tr",
   }) {
+    const filterId = tagFilterId || categoryFilterId;
     const searchInput = document.getElementById(searchInputId);
     const table = document.getElementById(tableId);
     const applySearch = () => {
@@ -950,11 +1114,12 @@ const TSLab = (() => {
     };
     searchInput?.addEventListener("input", applySearch);
 
-    document.getElementById(categoryFilterId)?.addEventListener("change", (e) => {
+    document.getElementById(filterId)?.addEventListener("change", (e) => {
       const v = e.target.value;
       const url = new URL(window.location.href);
-      if (v) url.searchParams.set("category_id", v);
-      else url.searchParams.delete("category_id");
+      if (v) url.searchParams.set("tag", v);
+      else url.searchParams.delete("tag");
+      url.searchParams.delete("category_id");
       window.location.href = url.toString();
     });
 
@@ -966,71 +1131,203 @@ const TSLab = (() => {
     });
   }
 
-  function wireCategoryDualList({ selectedEl, availableEl, addOne, addAll, remOne, remAll }) {
-    function moveSelected(from, to) {
-      Array.from(from.selectedOptions).forEach((opt) => {
-        to.appendChild(opt);
-      });
-      sortSelect(from);
-      sortSelect(to);
+  const REPORTING_TAG = "Reporting";
+
+  function sortTagSelect(el) {
+    const opts = Array.from(el.options).sort((a, b) => a.text.localeCompare(b.text, "de"));
+    el.innerHTML = "";
+    opts.forEach((o) => el.appendChild(o));
+  }
+
+  function wireTagShuttle({ selectedEl, availableEl, addOne, addAll, remOne, remAll, confirmReporting }) {
+    async function moveSelected(from, to, checkReporting = false) {
+      const moving = Array.from(from.selectedOptions).map((o) => o.textContent);
+      if (checkReporting && moving.length) {
+        const ok = await confirmReporting(moving);
+        if (!ok) return;
+      }
+      Array.from(from.selectedOptions).forEach((opt) => to.appendChild(opt));
+      sortTagSelect(from);
+      sortTagSelect(to);
     }
-    function moveAll(from, to) {
+    async function moveAll(from, to, checkReporting = false) {
+      const moving = Array.from(from.options).map((o) => o.textContent);
+      if (checkReporting && moving.length) {
+        const ok = await confirmReporting(moving);
+        if (!ok) return;
+      }
       Array.from(from.options).forEach((opt) => to.appendChild(opt));
-      sortSelect(from);
-      sortSelect(to);
-    }
-    function sortSelect(el) {
-      const opts = Array.from(el.options).sort((a, b) => a.text.localeCompare(b.text, "de"));
-      el.innerHTML = "";
-      opts.forEach((o) => el.appendChild(o));
+      sortTagSelect(from);
+      sortTagSelect(to);
     }
     addOne?.addEventListener("click", () => moveSelected(availableEl, selectedEl));
     addAll?.addEventListener("click", () => moveAll(availableEl, selectedEl));
-    remOne?.addEventListener("click", () => moveSelected(selectedEl, availableEl));
-    remAll?.addEventListener("click", () => moveAll(selectedEl, availableEl));
+    remOne?.addEventListener("click", () => moveSelected(selectedEl, availableEl, true));
+    remAll?.addEventListener("click", () => moveAll(selectedEl, availableEl, true));
     return {
-      selectedIds() {
-        return Array.from(selectedEl.options).map((o) => parseInt(o.value, 10)).filter(Boolean);
+      selectedTags() {
+        return Array.from(selectedEl.options)
+          .map((o) => parseInt(o.value, 10))
+          .filter(Boolean);
       },
     };
   }
 
-  function initSeriesEdit(slug, opts = {}) {
-    const form = document.getElementById("seriesEditForm");
-    const saveBtn = document.getElementById("seriesSaveBtn");
-    const selectedEl = document.getElementById("categorySelected");
-    const availableEl = document.getElementById("categoryAvailable");
-    const selectedIds = new Set(opts.categoryIds || []);
-    const allCategories = opts.allCategories || [];
+  function initTagShuttle() {
+    if (initTagShuttle._ready) return;
+    initTagShuttle._ready = true;
+    const modal = document.getElementById("tagShuttleModal");
+    const reportingModal = document.getElementById("reportingConfirmModal");
+    const selectedEl = document.getElementById("tagShuttleSelected");
+    const availableEl = document.getElementById("tagShuttleAvailable");
+    const saveBtn = document.getElementById("tagShuttleSave");
+    const titleEl = document.getElementById("tagShuttleTitle");
+    if (!modal || !selectedEl || !availableEl) return;
 
-    if (selectedEl && availableEl) {
-      allCategories.forEach((c) => {
-        const opt = document.createElement("option");
-        opt.value = String(c.id);
-        opt.textContent = c.name;
-        if (selectedIds.has(c.id)) selectedEl.appendChild(opt);
-        else availableEl.appendChild(opt);
-      });
+    let reportingResolve = null;
+
+    function askReporting() {
+      if (reportingModal) {
+        return new Promise((resolve) => {
+          reportingResolve = resolve;
+          reportingModal.hidden = false;
+        });
+      }
+      return Promise.resolve(confirm("Ist Reporting wirklich erledigt?"));
     }
 
-    const dual = selectedEl && availableEl
-      ? wireCategoryDualList({
-          selectedEl,
-          availableEl,
-          addOne: document.getElementById("catAddOne"),
-          addAll: document.getElementById("catAddAll"),
-          remOne: document.getElementById("catRemOne"),
-          remAll: document.getElementById("catRemAll"),
-        })
-      : null;
+    reportingModal?.querySelector("[data-reporting-cancel]")?.addEventListener("click", () => {
+      reportingModal.hidden = true;
+      reportingResolve?.(false);
+      reportingResolve = null;
+    });
+    document.getElementById("reportingConfirmBtn")?.addEventListener("click", () => {
+      reportingModal.hidden = true;
+      reportingResolve?.(true);
+      reportingResolve = null;
+    });
+
+    async function confirmReporting(tagsToRemove) {
+      if (!tagsToRemove.includes(REPORTING_TAG)) return true;
+      return askReporting();
+    }
+
+    const shuttle = wireTagShuttle({
+      selectedEl,
+      availableEl,
+      addOne: document.getElementById("tagAddOne"),
+      addAll: document.getElementById("tagAddAll"),
+      remOne: document.getElementById("tagRemOne"),
+      remAll: document.getElementById("tagRemAll"),
+      confirmReporting,
+    });
+
+    let context = null;
+    let allTagsCache = null;
+
+    async function loadAllCategories() {
+      if (allTagsCache) return allTagsCache;
+      const res = await fetch("/api/categories");
+      allTagsCache = res.ok ? await res.json() : [];
+      return allTagsCache;
+    }
+
+    function fillLists(selectedIds, allCategories) {
+      selectedEl.innerHTML = "";
+      availableEl.innerHTML = "";
+      const selected = new Set(selectedIds.map(String));
+      (allCategories || [])
+        .slice()
+        .sort((a, b) => a.name.localeCompare(b.name, "de"))
+        .forEach((cat) => {
+          const opt = document.createElement("option");
+          opt.value = String(cat.id);
+          opt.textContent = cat.name;
+          if (selected.has(String(cat.id))) selectedEl.appendChild(opt);
+          else availableEl.appendChild(opt);
+        });
+    }
+
+    function parseCategoryIds(raw) {
+      return (raw || "")
+        .split(",")
+        .map((t) => t.trim())
+        .filter(Boolean)
+        .map((t) => parseInt(t, 10))
+        .filter(Boolean);
+    }
+
+    async function openShuttle(entityType, entityId, selectedIds, label) {
+      context = { entityType, entityId };
+      if (titleEl) titleEl.textContent = label || "Tags";
+      const allCategories = await loadAllCategories();
+      fillLists(selectedIds, allCategories);
+      modal.hidden = false;
+    }
+
+    document.addEventListener("click", (e) => {
+      const cell = e.target.closest(".tag-shuttle-trigger");
+      if (!cell || cell.closest("a")) return;
+      e.preventDefault();
+      e.stopPropagation();
+      openShuttle(
+        cell.dataset.entityType,
+        cell.dataset.entityId,
+        parseCategoryIds(cell.dataset.categoryIds),
+        "Tags"
+      );
+    });
+
+    document.getElementById("seriesTagsEditBtn")?.addEventListener("click", (e) => {
+      const btn = e.currentTarget;
+      openShuttle(
+        btn.dataset.entityType,
+        btn.dataset.entityId,
+        parseCategoryIds(btn.dataset.categoryIds),
+        "Tags"
+      );
+    });
+
+    modal.querySelectorAll("[data-tag-shuttle-cancel]").forEach((el) => {
+      el.addEventListener("click", () => {
+        modal.hidden = true;
+        context = null;
+      });
+    });
+
+    saveBtn?.addEventListener("click", async () => {
+      if (!context) return;
+      const category_ids = shuttle.selectedTags();
+      const res = await fetch("/api/tags", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          entity_type: context.entityType,
+          entity_id: context.entityId,
+          category_ids,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.ok === false) {
+        toast(data.message || "Speichern fehlgeschlagen");
+        return;
+      }
+      modal.hidden = true;
+      toast("Tags gespeichert");
+      window.location.reload();
+    });
+  }
+
+  function initSeriesEdit(slug) {
+    const form = document.getElementById("seriesEditForm");
+    const saveBtn = document.getElementById("seriesSaveBtn");
 
     async function saveSeries() {
       const name = document.getElementById("seriesNameEdit")?.value?.trim();
-      const category_ids = dual ? dual.selectedIds() : [];
       const res = await fetch(`/api/series/${slug}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, category_ids }),
+        body: JSON.stringify({ name }),
       });
       const data = await res.json();
       if (!res.ok || data.ok === false) {
@@ -1057,6 +1354,7 @@ const TSLab = (() => {
     initCategoriesPage,
     initSeriesEdit,
     initListToolbar,
+    initTagShuttle,
     toast,
   };
 })();

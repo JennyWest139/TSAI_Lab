@@ -13,8 +13,8 @@ PROTECTED_CATEGORY = "Reporting"
 # In-Memory-Kategorien fuer Mock-Modus (bleibt waehrend Server-Lauf erhalten)
 _mock_categories: list[dict] = [{"id": 1, "name": PROTECTED_CATEGORY}]
 _mock_next_category_id = 2
-_mock_series_categories: dict[str, list[int]] = {}  # slug -> category_ids
-_mock_run_categories: dict[tuple[str, int], list[int]] = {}  # (entity_type, id) -> ids
+_mock_series_categories: dict[str, list[int]] = {"pdax": [1]}  # slug -> category_ids
+_mock_run_categories: dict[tuple[str, int], list[int]] = {("correlation", 1): [1]}
 
 
 @dataclass(frozen=True)
@@ -226,14 +226,13 @@ def series_by_slug(slug: str) -> SeriesMeta | None:
     if base is None:
         return None
     cat_ids = list(_mock_series_categories.get(slug, []))
-    if not cat_ids:
-        return base
     names = _mock_category_names(cat_ids)
     return replace(
         base,
         category_ids=tuple(cat_ids),
         category_names=names,
-        category_id=cat_ids[0],
+        tags=names,
+        category_id=cat_ids[0] if cat_ids else None,
         category_name=", ".join(names) if names else None,
     )
 
@@ -304,81 +303,93 @@ def mock_delete_category(category_id: int) -> dict:
     return {"ok": True}
 
 
-def mock_update_series_meta(
-    slug: str,
-    *,
-    name: str,
-    category_id: int | None = None,
-    category_ids: list[int] | None = None,
-) -> dict:
+def mock_update_series_meta(slug: str, *, name: str) -> dict:
     base = next((s for s in MOCK_SERIES if s.slug == slug), None)
     if base is None:
         raise ValueError(f"Zeitreihe '{slug}' nicht gefunden.")
-    ids = list(category_ids if category_ids is not None else ([] if category_id is None else [category_id]))
-    for cid in ids:
-        if mock_category_by_id(cid) is None:
-            raise ValueError("Kategorie nicht gefunden.")
-    if ids:
-        _mock_series_categories[slug] = ids
-    else:
-        _mock_series_categories.pop(slug, None)
     updated = series_by_slug(slug)
     assert updated is not None
     d = series_to_dict(replace(updated, name=name.strip(), label_de=name.strip()))
     return {"ok": True, "series": d}
 
 
-def mock_assign_run_categories(entity_type: str, entity_id: int, series_slugs: list[str]) -> list[int]:
+def mock_all_tags() -> list[str]:
+    return [c["name"] for c in sorted(_mock_categories, key=lambda x: x["name"].lower())]
+
+
+def mock_entity_category_ids(entity_type: str, entity_id: int | str) -> list[int]:
+    if entity_type == "series":
+        return list(_mock_series_categories.get(str(entity_id), []))
+    return list(_mock_run_categories.get((entity_type, int(entity_id)), []))
+
+
+def mock_run_category_names(entity_type: str, entity_id: int) -> tuple[str, ...]:
+    return _mock_category_names(mock_entity_category_ids(entity_type, entity_id))
+
+
+def mock_set_entity_categories(
+    entity_type: str, entity_id: int | str, category_ids: list[int]
+) -> list[str]:
+    for cid in category_ids:
+        if mock_category_by_id(cid) is None:
+            raise ValueError("Tag nicht gefunden.")
+    if entity_type == "series":
+        if category_ids:
+            _mock_series_categories[str(entity_id)] = list(category_ids)
+        else:
+            _mock_series_categories.pop(str(entity_id), None)
+    else:
+        key = (entity_type, int(entity_id))
+        if category_ids:
+            _mock_run_categories[key] = list(category_ids)
+        elif key in _mock_run_categories:
+            del _mock_run_categories[key]
+    return list(_mock_category_names(category_ids))
+
+
+def mock_inherit_run_categories(
+    entity_type: str, entity_id: int, series_slugs: list[str]
+) -> list[int]:
     merged: list[int] = []
     seen: set[int] = set()
     for slug in series_slugs:
-        for cid in _mock_series_categories.get(slug, []):
+        for cid in mock_entity_category_ids("series", slug):
             if cid not in seen:
                 seen.add(cid)
                 merged.append(cid)
     if merged:
-        _mock_run_categories[(entity_type, entity_id)] = merged
+        mock_set_entity_categories(entity_type, entity_id, merged)
     return merged
 
 
-def mock_run_category_names(entity_type: str, entity_id: int) -> tuple[str, ...]:
-    return _mock_category_names(_mock_run_categories.get((entity_type, entity_id), []))
-
-
-def mock_run_matches_category(
-    entity_type: str, entity_id: int, series_slugs: list[str], category_id: int
+def mock_run_matches_tag(
+    entity_type: str, entity_id: int, series_slugs: list[str], tag: str
 ) -> bool:
-    if category_id in _mock_run_categories.get((entity_type, entity_id), []):
-        return True
+    needle = tag.strip().lower()
+    for name in mock_run_category_names(entity_type, entity_id):
+        if name.lower() == needle:
+            return True
     for slug in series_slugs:
         s = series_by_slug(slug)
-        if s is None:
-            continue
-        ids = set(s.category_ids or (() if s.category_id is None else (s.category_id,)))
-        if category_id in ids:
-            return True
+        if s:
+            for name in s.tags:
+                if name.lower() == needle:
+                    return True
     return False
 
 
 def mock_list_series(
     *,
     tag: str | None = None,
-    category_id: int | None = None,
-    category_ids: list[int] | None = None,
 ) -> list[SeriesMeta]:
     series = [series_by_slug(s.slug) for s in MOCK_SERIES]
     series = [s for s in series if s is not None]
     if tag:
-        series = [s for s in series if tag in s.tags]
-    ids_filter = list(category_ids or [])
-    if category_id is not None and not ids_filter:
-        ids_filter = [category_id]
-    if ids_filter:
-        id_set = set(ids_filter)
+        needle = tag.strip().lower()
         series = [
             s
             for s in series
-            if id_set.intersection(set(s.category_ids or (() if s.category_id is None else (s.category_id,))))
+            if any(n.lower() == needle for n in (s.tags or s.category_names))
         ]
     return series
 
@@ -387,14 +398,14 @@ def series_to_dict(s: SeriesMeta) -> dict:
     d = asdict(s)
     d["first_date"] = s.first_date.isoformat()
     d["last_date"] = s.last_date.isoformat()
-    d["tags"] = list(s.tags)
+    d["tags"] = list(s.tags or s.category_names)
     d["category_ids"] = list(s.category_ids)
-    d["category_names"] = list(s.category_names)
+    d["category_names"] = list(s.category_names or s.tags)
     if s.created_at is not None:
         d["created_at"] = s.created_at.isoformat()
     if s.category_names and not s.category_name:
         d["category_name"] = ", ".join(s.category_names)
-    d["has_reporting"] = "Reporting" in s.tags or s.category_name == "Reporting"
+    d["has_reporting"] = PROTECTED_CATEGORY in (s.tags or s.category_names)
     return d
 
 

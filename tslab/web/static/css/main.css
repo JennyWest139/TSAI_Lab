@@ -399,6 +399,15 @@ input:focus, select:focus {
 .list-toolbar label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.85rem; }
 .list-toolbar input[type="search"] { min-width: 14rem; }
 
+.tag-cell {
+  cursor: pointer;
+  color: var(--accent);
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+.tag-cell:hover { color: var(--accent-strong, var(--accent)); }
+.tag-display { margin: 0 0 0.75rem; }
+
 .dual-list-picker {
   display: grid;
   grid-template-columns: 1fr auto 1fr;

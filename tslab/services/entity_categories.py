@@ -6,7 +6,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from tslab.db.models import Category, EntityCategory, TimeSeries
-from tslab.services.category_service import get_category
+from tslab.services.category_service import PROTECTED_CATEGORY, get_category, is_protected_category
 from tslab.services.timeseries_store import get_series_by_slug
 
 ENTITY_SERIES = "series"
@@ -118,6 +118,44 @@ def inherit_categories_from_series_slugs(
     if merged:
         set_categories(session, entity_type, entity_id, merged)
     return merged
+
+
+def has_protected_category(session: Session, entity_type: str, entity_id: int) -> bool:
+    for cid in list_category_ids(session, entity_type, entity_id):
+        if is_protected_category(get_category(session, cid)):
+            return True
+    return False
+
+
+def entity_matches_category_name(
+    session: Session,
+    entity_type: str,
+    entity_id: int,
+    category_name: str,
+    *,
+    series_slugs: list[str] | None = None,
+) -> bool:
+    """Filter: Tag-Name auf Entitaet oder verknuepfte Zeitreihen."""
+    needle = category_name.strip().lower()
+    if not needle:
+        return True
+    for name in list_category_names(session, entity_type, entity_id):
+        if name.strip().lower() == needle:
+            return True
+    if not series_slugs:
+        return False
+    for slug in series_slugs:
+        ts = get_series_by_slug(session, slug)
+        if ts is None:
+            continue
+        for name in list_category_names(session, ENTITY_SERIES, ts.id):
+            if name.strip().lower() == needle:
+                return True
+        if ts.category_id is not None:
+            cat = get_category(session, ts.category_id)
+            if cat and cat.name.strip().lower() == needle:
+                return True
+    return False
 
 
 def backfill_series_from_primary(session: Session) -> int:

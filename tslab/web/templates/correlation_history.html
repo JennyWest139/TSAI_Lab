@@ -8,10 +8,10 @@
   <div class="card-header list-toolbar">
     <h2>Läufe</h2>
     <div class="list-toolbar-actions">
-      <select id="categoryFilter">
-        <option value="">Alle Kategorien</option>
-        {% for c in categories %}
-        <option value="{{ c.id }}" {% if active_category_id == c.id %}selected{% endif %}>{{ c.name }}</option>
+      <select id="tagFilter">
+        <option value="">Alle Tags</option>
+        {% for t in all_tags %}
+        <option value="{{ t }}" {% if active_tag == t %}selected{% endif %}>{{ t }}</option>
         {% endfor %}
       </select>
       <input type="search" id="listSearch" placeholder="Suche (Name, Serie …)">
@@ -24,7 +24,7 @@
         <tr>
           <th>Datum</th>
           <th>Bezeichnung</th>
-          <th>Kategorien</th>
+          <th>Tags</th>
           <th>Serie A</th>
           <th>Serie B</th>
           <th>Fenster</th>
@@ -36,10 +36,15 @@
       </thead>
       <tbody>
         {% for r in runs %}
-        <tr data-search="{{ (r.display_name ~ ' ' ~ r.series_a ~ ' ' ~ r.series_b ~ ' ' ~ (r.category_names|join(' ')))|lower }}">
+        <tr data-search="{{ (r.display_name ~ ' ' ~ r.series_a ~ ' ' ~ r.series_b ~ ' ' ~ (r.tags|join(' ')))|lower }}">
           <td class="mono">{{ r.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
           <td>{{ r.display_name }}</td>
-          <td>{{ r.category_names|join(', ') or '—' }}</td>
+          <td class="tag-cell tag-shuttle-trigger"
+              role="button" tabindex="0"
+              data-entity-type="correlation"
+              data-entity-id="{{ r.id }}"
+              data-category-ids="{{ r.category_ids|join(',') if r.category_ids else '' }}"
+              title="Tags bearbeiten">{{ r.tags|join(', ') or '—' }}</td>
           <td>{{ r.series_a }}</td>
           <td>{{ r.series_b }}</td>
           <td class="mono">{{ r.start_date }} → {{ r.end_date }}</td>
@@ -67,6 +72,6 @@
 {% block scripts %}
 <script>
   TSLab.initCore();
-  TSLab.initListToolbar({ categoryFilterId: "categoryFilter", searchInputId: "listSearch", tableId: "corrHistoryTable" });
+  TSLab.initListToolbar({ tagFilterId: "tagFilter", searchInputId: "listSearch", tableId: "corrHistoryTable" });
 </script>
 {% endblock %}

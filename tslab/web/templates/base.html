@@ -46,8 +46,8 @@
           <span class="nav-icon">⏱</span> Historie
         </a>
         <div class="nav-section">Verwaltung</div>
-        <a href="{{ url_for('categories_page') }}" class="nav-link {% if page == 'categories' %}active{% endif %}">
-          <span class="nav-icon">▦</span> Kategorien
+        <a href="{{ url_for('tags_page') }}" class="nav-link {% if page == 'tags' %}active{% endif %}">
+          <span class="nav-icon">▦</span> Tags
         </a>
       </nav>
       <div class="sidebar-foot">
@@ -55,7 +55,7 @@
         <small>Backend: {{ backend_mode }}</small>
         {% if uses_mock %}
         <small class="field-error" style="display:block;margin-top:0.35rem;">
-          Mock-Modus — Kategorien &amp; DB-Aenderungen werden nicht gespeichert.
+          Mock-Modus — Tags &amp; DB-Aenderungen werden nicht dauerhaft gespeichert.
           Server neu starten, wenn PostgreSQL laeuft.
         </small>
         {% endif %}
@@ -120,7 +120,56 @@
     </div>
   </div>
 
-  <script src="{{ url_for('static', filename='js/app.js') }}?v=7"></script>
+  <div id="tagShuttleModal" class="modal-overlay" hidden>
+    <div class="card modal-card">
+      <h2 id="tagShuttleTitle">Tags</h2>
+      <div class="dual-list-picker tag-shuttle-lists">
+        <div class="dual-list-col">
+          <label for="tagShuttleSelected">Ausgewählt</label>
+          <select id="tagShuttleSelected" multiple size="10" aria-label="Ausgewählte Tags"></select>
+        </div>
+        <div class="dual-list-actions">
+          <button type="button" class="btn btn-ghost btn-sm" id="tagRemOne" title="Abwählen">&gt;</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="tagRemAll" title="Alle abwählen">&gt;&gt;</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="tagAddOne" title="Auswählen">&lt;</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="tagAddAll" title="Alle auswählen">&lt;&lt;</button>
+        </div>
+        <div class="dual-list-col">
+          <label for="tagShuttleAvailable">Verfügbar</label>
+          <select id="tagShuttleAvailable" multiple size="10" aria-label="Verfügbare Tags"></select>
+        </div>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn btn-ghost" data-tag-shuttle-cancel>Abbrechen</button>
+        <button type="button" class="btn btn-primary" id="tagShuttleSave">OK</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="reportingConfirmModal" class="modal-overlay" hidden>
+    <div class="card modal-card">
+      <h2>Reporting abwählen?</h2>
+      <p>Ist Reporting wirklich erledigt?</p>
+      <div class="form-actions">
+        <button type="button" class="btn btn-ghost" data-reporting-cancel>Nein</button>
+        <button type="button" class="btn btn-primary" id="reportingConfirmBtn">Ja, erledigt</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="rateLimitModal" class="modal-overlay" hidden>
+    <div class="card modal-card">
+      <h2>KI-Anfragen — kurze Pause</h2>
+      <p id="rateLimitMessage">Nach 5 KI-Anfragen wird eine Pause empfohlen.</p>
+      <p class="hint" id="rateLimitCountdown">Empfohlene Wartezeit: 60 Sekunden</p>
+      <div class="form-actions">
+        <button type="button" class="btn btn-ghost" id="rateLimitFinishBtn">Jetzt abschließen (mit Fehlern)</button>
+        <button type="button" class="btn btn-primary" id="rateLimitPauseBtn">1 Minute warten und fortfahren</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="{{ url_for('static', filename='js/app.js') }}?v=10"></script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

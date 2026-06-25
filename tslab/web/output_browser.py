@@ -8,36 +8,22 @@ from pathlib import Path
 
 from flask import abort, send_file
 
-from tslab.config_loader import resolve_output_dir
+from tslab.services.output_paths import (
+    browse_url_for,
+    output_root,
+    relative_output_path,
+    safe_resolve_output,
+)
 
 _IMAGE_EXT = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"}
 _DOC_EXT = {".txt", ".csv", ".xlsx", ".pdf", ".html", ".json", ".docx"}
 
 
-def output_root() -> Path:
-    return resolve_output_dir().resolve()
-
-
 def resolve_output_path(rel_path: str) -> Path:
-    """rel_path relativ zu output/ — Path-Traversal verhindern."""
-    root = output_root()
-    clean = rel_path.replace("\\", "/").strip("/")
-    target = (root / clean).resolve()
-    if not str(target).startswith(str(root)):
-        abort(403)
-    return target
-
-
-def relative_output_path(abs_path: str | Path) -> str | None:
-    """Absoluten Pfad in relativen output/-Pfad umwandeln."""
-    root = output_root()
     try:
-        target = Path(abs_path).resolve()
-    except OSError:
-        return None
-    if not str(target).startswith(str(root)):
-        return None
-    return target.relative_to(root).as_posix()
+        return safe_resolve_output(rel_path)
+    except ValueError:
+        abort(403)
 
 
 def list_directory(rel_path: str = "") -> dict:
@@ -89,14 +75,13 @@ def zip_directory(rel_path: str = "") -> Path:
     return tmp
 
 
-def browse_url_for(rel_path: str | None) -> str | None:
-    if not rel_path:
-        return None
-    rel = relative_output_path(rel_path)
-    if rel is None:
-        # bereits relativ?
-        if not rel_path.replace("\\", "/").startswith(".."):
-            rel = rel_path.replace("\\", "/").lstrip("/")
-        else:
-            return None
-    return f"/output/browse/{rel}"
+# Re-export fuer bestehende Imports
+__all__ = [
+    "browse_url_for",
+    "list_directory",
+    "output_root",
+    "relative_output_path",
+    "resolve_output_path",
+    "serve_output_file",
+    "zip_directory",
+]

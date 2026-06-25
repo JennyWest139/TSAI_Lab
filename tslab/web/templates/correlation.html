@@ -17,7 +17,7 @@
         <select id="seriesA" name="series_a" required>
           <option value="">— wählen —</option>
           {% for s in series %}
-          <option value="{{ s.slug }}" data-category-id="{{ s.category_id or '' }}" {% if s.slug == 'pdax' %}selected{% endif %}>{{ s.label_de }} ({{ s.slug }})</option>
+          <option value="{{ s.slug }}" {% if s.slug == 'pdax' %}selected{% endif %}>{{ s.label_de }} ({{ s.slug }})</option>
           {% endfor %}
         </select>
       </div>
@@ -26,7 +26,7 @@
         <select id="seriesB" name="series_b" required>
           <option value="">— wählen —</option>
           {% for s in series %}
-          <option value="{{ s.slug }}" data-category-id="{{ s.category_id or '' }}" {% if s.slug == 'erwerbslose' %}selected{% endif %}>{{ s.label_de }} ({{ s.slug }})</option>
+          <option value="{{ s.slug }}" {% if s.slug == 'erwerbslose' %}selected{% endif %}>{{ s.label_de }} ({{ s.slug }})</option>
           {% endfor %}
         </select>
       </div>

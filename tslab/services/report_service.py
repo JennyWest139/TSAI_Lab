@@ -21,7 +21,7 @@ from tslab.services.ai_providers import (
 )
 from tslab.services.report_docx import build_run_report_docx
 from tslab.services.report_ai_pdf import build_run_report_pdf
-from tslab.web.output_browser import relative_output_path, resolve_output_path
+from tslab.services.output_paths import relative_output_path, resolve_output_dir_arg
 
 _SYSTEM_DE = (
     "Du bist Analyst fuer Zeitreihen und oekonometrische Auswertungen (Diplomarbeit-Stil). "
@@ -165,11 +165,10 @@ def ai_reports_available() -> bool:
 
 
 def _resolve_output_dir(output_dir: str | Path) -> Path:
-    path = Path(output_dir)
-    if path.is_dir():
-        return path.resolve()
-    rel = str(output_dir).replace("\\", "/").strip("/")
-    return resolve_output_path(rel)
+    try:
+        return resolve_output_dir_arg(output_dir)
+    except (ValueError, OSError) as exc:
+        raise ValueError(str(exc)) from exc
 
 
 def _read_text_file(path: Path, *, max_chars: int = 12000) -> str:
@@ -242,197 +241,20 @@ def generate_run_report(
     model_id: str | None = None,
     run_type: str = "Analyse",
     title: str | None = None,
+    analysis_mode: str = "extended",
+    interactive: bool = False,
 ) -> dict[str, Any]:
-    """Erstellt Word-Bericht fuer einen Output-Ordner."""
-    config = load_report_config()
-    if not config.enabled:
-        return {
-            "ok": False,
-            "status": "disabled",
-            "message": "AI-Berichte sind deaktiviert (ai_reports.enabled oder TSLAB_AI_REPORTS_ENABLED).",
-        }
+    """Erstellt Word-Bericht(e) fuer einen Output-Ordner (ggf. je TSA-Modell)."""
+    from tslab.services.report_session import run_report_session_to_completion
 
-    init_langfuse(config)
-    langfuse_active = langfuse_configured(config)
-    spec = _model_spec_for_id(config, model_id)
-    if not spec.enabled:
-        return {"ok": False, "status": "error", "message": f"Modell {spec.id} ist deaktiviert."}
-
-    try:
-        run_path = _resolve_output_dir(output_dir)
-    except Exception as exc:
-        return {"ok": False, "status": "error", "message": str(exc)}
-
-    if not run_path.is_dir():
-        return {"ok": False, "status": "error", "message": f"Ordner nicht gefunden: {output_dir}"}
-
-    pngs, txts, tables = _scan_run_dir(run_path)
-    if not pngs and not txts and not tables:
-        return {
-            "ok": False,
-            "status": "error",
-            "message": "Keine PNG-, TXT- oder Tabellendateien im Lauf-Ordner.",
-        }
-
-    provider = get_provider(spec.provider, config)
-    max_tok = config.max_tokens
-    image_tok = min(600, max_tok)
-
-    text_sections: list[tuple[str, str]] = []
-    text_bundle_parts: list[str] = []
-
-    for tf in txts:
-        if tf.name in (config.output_basename, "ai_bericht.pdf"):
-            continue
-        content = _read_text_file(tf)
-        text_bundle_parts.append(f"### {tf.name}\n{content}")
-        text_sections.append((tf.name, content))
-
-    for table_path in tables:
-        preview = _read_table_preview(table_path)
-        text_bundle_parts.append(f"### {table_path.name}\n{preview}")
-        text_sections.append((table_path.name, preview))
-
-    ai_text_notes: list[tuple[str, str]] = []
-    ai_errors: list[str] = []
-    ai_warnings: list[str] = []
-    token_usage = LLMUsage()
-    llm_calls = 0
-
-    if text_bundle_parts:
-        try:
-            resp = provider.complete_text(
-                system=_SYSTEM_DE,
-                user=_TEXT_PROMPT + "\n\n" + "\n\n".join(text_bundle_parts),
-                model=spec.model_name,
-                max_tokens=max_tok,
-                trace_name="tslab-report-text",
-            )
-            ai_text_notes.append(("KI-Auswertung Text/Tabellen", resp.text))
-            _accumulate_usage(token_usage, resp.usage)
-            llm_calls += 1
-        except Exception as exc:
-            msg = f"KI-Auswertung Text/Tabellen: {exc}"
-            ai_errors.append(msg)
-            ai_text_notes.append(("KI-Auswertung Text/Tabellen", f"(Fehler: {exc})"))
-
-    image_sections: list[tuple[str, str, Path]] = []
-    image_notes_for_summary: list[str] = []
-    for img in pngs:
-        try:
-            if spec.vision:
-                resp = provider.describe_image(
-                    image_path=img,
-                    prompt=_IMAGE_PROMPT,
-                    model=spec.model_name,
-                    max_tokens=image_tok,
-                    trace_name=f"tslab-report-image-{img.stem}",
-                )
-                expl = resp.text
-                _accumulate_usage(token_usage, resp.usage)
-                llm_calls += 1
-            else:
-                expl = "(Vision fuer dieses Modell nicht verfuegbar.)"
-                ai_warnings.append(f"Vision nicht verfuegbar fuer {spec.label}.")
-            image_sections.append((img.name, expl, img))
-            image_notes_for_summary.append(f"{img.name}: {expl}")
-        except Exception as exc:
-            msg = f"Bildanalyse {img.name}: {exc}"
-            ai_errors.append(msg)
-            image_sections.append((img.name, f"(Fehler bei Bildanalyse: {exc})", img))
-
-    summary_input = "\n\n".join(
-        [t for _, t in ai_text_notes] + image_notes_for_summary
-    ) or "Keine automatische Voranalyse."
-    try:
-        resp = provider.complete_text(
-            system=_SYSTEM_DE,
-            user=_SUMMARY_PROMPT + "\n\n" + summary_input,
-            model=spec.model_name,
-            max_tokens=max_tok,
-            trace_name="tslab-report-summary",
-        )
-        summary = resp.text
-        _accumulate_usage(token_usage, resp.usage)
-        llm_calls += 1
-    except Exception as exc:
-        ai_errors.append(f"Zusammenfassung: {exc}")
-        summary = f"Zusammenfassung konnte nicht erzeugt werden: {exc}"
-
-    if langfuse_active:
-        flush_langfuse()
-    elif llm_calls:
-        ai_warnings.append("Langfuse nicht konfiguriert — Traces werden nicht extern protokolliert.")
-
-    doc_text_sections = list(text_sections)
-    for heading, body in ai_text_notes:
-        doc_text_sections.append((heading, body))
-
-    report_name = config.output_basename
-    out_path = run_path / report_name
-    doc_title = title or f"TSLab {run_type}-Bericht"
-    subtitle = f"Ordner: {run_path.name}"
-
-    build_run_report_docx(
-        out_path,
-        title=doc_title,
-        subtitle=subtitle,
-        summary=summary,
-        text_sections=doc_text_sections,
-        image_sections=image_sections,
-        model_label=spec.label,
+    _ = title  # Titel je Zielordner in report_session
+    return run_report_session_to_completion(
+        output_dir,
+        model_id=model_id,
+        run_type=run_type,
+        analysis_mode=analysis_mode,
+        interactive=interactive,
     )
-
-    pdf_name = Path(config.output_basename).with_suffix(".pdf").name
-    pdf_path = run_path / pdf_name
-    build_run_report_pdf(
-        pdf_path,
-        title=doc_title,
-        subtitle=subtitle,
-        summary=summary,
-        text_sections=doc_text_sections,
-        image_sections=image_sections,
-        model_label=spec.label,
-    )
-
-    rel = relative_output_path(out_path)
-    file_url = f"/output/file/{rel}" if rel else None
-    pdf_rel = relative_output_path(pdf_path)
-    pdf_url = f"/output/file/{pdf_rel}" if pdf_rel else None
-
-    ai_ok = llm_calls > 0 and not ai_errors
-    status_msg = f"KI-Bericht erstellt: {report_name}"
-    if ai_errors:
-        status_msg += f" ({len(ai_errors)} KI-Fehler — siehe Word-Bericht)"
-    elif llm_calls == 0:
-        status_msg += " (ohne KI-Auswertung)"
-
-    return {
-        "ok": True,
-        "ai_ok": ai_ok,
-        "status": "done",
-        "message": status_msg,
-        "report_path": str(out_path),
-        "report_rel": rel,
-        "report_url": file_url,
-        "report_pdf_path": str(pdf_path),
-        "report_pdf_rel": pdf_rel,
-        "report_pdf_url": pdf_url,
-        "model": spec.id,
-        "png_count": len(pngs),
-        "text_count": len(txts) + len(tables),
-        "llm_calls": llm_calls,
-        "ai_errors": ai_errors,
-        "ai_warnings": ai_warnings,
-        "token_usage": {
-            "prompt_tokens": token_usage.prompt_tokens,
-            "completion_tokens": token_usage.completion_tokens,
-            "total_tokens": token_usage.total_tokens,
-            "model": spec.model_name,
-            "calls": llm_calls,
-        },
-        "langfuse_active": langfuse_active,
-    }
 
 
 def generate_object_report(

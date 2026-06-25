@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from tslab.services.output_paths import browse_url_for, relative_output_path
 
 _log = logging.getLogger(__name__)
 
@@ -90,8 +92,6 @@ class RunTelemetryCollector:
         )
 
     def set_output(self, output_dir: str | Path, *, browse_url: str | None = None) -> None:
-        from tslab.web.output_browser import browse_url_for, relative_output_path
-
         path = Path(output_dir).resolve()
         self.data.output_dir = str(path)
         rel = relative_output_path(path)
@@ -119,12 +119,31 @@ class RunTelemetryCollector:
         for warn in report.get("ai_warnings") or []:
             self.warning(str(warn))
         if report.get("report_url"):
-            self.data.links["KI-Bericht (.docx)"] = str(report["report_url"])
+            label = "KI-Bericht (.docx)"
+            target = report.get("target")
+            if target and target != ".":
+                label = f"KI-Bericht {target} (.docx)"
+            self.data.links[label] = str(report["report_url"])
         if report.get("report_pdf_url"):
-            self.data.links["KI-Bericht (.pdf)"] = str(report["report_pdf_url"])
+            label = "KI-Bericht (.pdf)"
+            target = report.get("target")
+            if target and target != ".":
+                label = f"KI-Bericht {target} (.pdf)"
+            self.data.links[label] = str(report["report_pdf_url"])
         if report.get("report_rel"):
-            self.data.extra["ai_report_rel"] = report["report_rel"]
+            self.data.extra.setdefault("ai_report_rels", []).append(report["report_rel"])
+        events = report.get("rate_limit_events") or []
+        if events:
+            self.data.extra.setdefault("rate_limit_events", []).extend(events)
+        pause_count = report.get("rate_limit_pause_count")
+        if pause_count is not None:
+            self.data.extra["rate_limit_pause_count"] = int(
+                self.data.extra.get("rate_limit_pause_count", 0)
+            ) + int(pause_count)
 
+    def merge_ai_reports(self, reports: list[dict[str, Any]] | None) -> None:
+        for report in reports or []:
+            self.merge_ai_report(report)
     @contextmanager
     def track(self, component: str, **details: Any):
         started_at = datetime.now(timezone.utc)
@@ -162,8 +181,6 @@ class RunTelemetryCollector:
             self.error(f"PDF-Laufbericht: {exc}")
             return {"ok": False, "message": str(exc)}
 
-        from tslab.web.output_browser import relative_output_path
-
         rel = relative_output_path(out_path)
         url = f"/output/file/{rel}" if rel else None
         if url:
@@ -175,6 +192,72 @@ class RunTelemetryCollector:
             "url": url,
             "message": f"Laufbericht: {subdir}/{basename}",
         }
+
+
+PENDING_BASENAME = ".pending_run.json"
+
+
+def _component_to_dict(c: ComponentTiming) -> dict[str, Any]:
+    return {
+        "name": c.name,
+        "duration_ms": c.duration_ms,
+        "started_at": c.started_at.isoformat(),
+        "ended_at": c.ended_at.isoformat(),
+        "details": c.details,
+    }
+
+
+def _component_from_dict(data: dict[str, Any]) -> ComponentTiming:
+    return ComponentTiming(
+        name=str(data.get("name") or ""),
+        duration_ms=float(data.get("duration_ms") or 0),
+        started_at=datetime.fromisoformat(str(data["started_at"])),
+        ended_at=datetime.fromisoformat(str(data["ended_at"])),
+        details=dict(data.get("details") or {}),
+    )
+
+
+def save_pending_collector(collector: RunTelemetryCollector, output_dir: str | Path) -> Path:
+    path = Path(output_dir).resolve() / "Reports" / PENDING_BASENAME
+    path.parent.mkdir(parents=True, exist_ok=True)
+    d = collector.data
+    payload = {
+        "run_type": d.run_type,
+        "started_at": d.started_at.isoformat(),
+        "components": [_component_to_dict(c) for c in d.components],
+        "warnings": list(d.warnings),
+        "errors": list(d.errors),
+        "tokens": asdict(d.tokens),
+    }
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return path
+
+
+def load_pending_collector(output_dir: str | Path) -> RunTelemetryCollector | None:
+    path = Path(output_dir).resolve() / "Reports" / PENDING_BASENAME
+    if not path.is_file():
+        return None
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    collector = RunTelemetryCollector(run_type=str(payload.get("run_type") or "Analyse"))
+    collector.data.started_at = datetime.fromisoformat(str(payload["started_at"]))
+    collector.data.components = [
+        _component_from_dict(c) for c in payload.get("components") or []
+    ]
+    collector.data.warnings = list(payload.get("warnings") or [])
+    collector.data.errors = list(payload.get("errors") or [])
+    tok = payload.get("tokens") or {}
+    collector.data.tokens.prompt_tokens = int(tok.get("prompt_tokens") or 0)
+    collector.data.tokens.completion_tokens = int(tok.get("completion_tokens") or 0)
+    collector.data.tokens.total_tokens = int(tok.get("total_tokens") or 0)
+    collector.data.tokens.calls = int(tok.get("calls") or 0)
+    collector.data.tokens.models = list(tok.get("models") or [])
+    return collector
+
+
+def clear_pending_collector(output_dir: str | Path) -> None:
+    path = Path(output_dir).resolve() / "Reports" / PENDING_BASENAME
+    if path.is_file():
+        path.unlink()
 
 
 def langfuse_status_from_config(config: Any) -> dict[str, Any]:

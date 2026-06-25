@@ -26,9 +26,11 @@ from tslab.services.analysis_mode import (
     resolve_study_dates_for_mode,
 )
 from tslab.services.category_service import (
+    PROTECTED_CATEGORY,
     create_category,
     delete_category,
     get_category,
+    get_category_by_name,
     list_categories,
     update_category,
 )
@@ -49,21 +51,11 @@ from tslab.services.entity_categories import (
     ENTITY_TSA,
     assign_series_categories,
     entity_ids_with_category,
+    entity_matches_category_name,
     inherit_categories_from_series_slugs,
     list_category_ids,
     list_category_names,
-)
-from tslab.services.entity_tags import (
-    ENTITY_CORRELATION,
-    ENTITY_SERIES,
-    ENTITY_TSA,
-    PROTECTED_TAG,
-    add_tag,
-    entity_ids_with_tag,
-    list_tags,
-    remove_tag,
-    set_tags,
-    suggest_tags,
+    set_categories,
 )
 from tslab.services.tsa_job import forecast_plot_window_from_payload, run_tsa_job
 from tslab.services.order_selection import parse_order_list
@@ -73,7 +65,14 @@ from tslab.services.report_service import (
     list_report_models,
     load_report_config,
 )
-from tslab.services.run_telemetry import RunTelemetryCollector, langfuse_status_from_config
+from tslab.services.report_session import prepare_report_session, step_report_session
+from tslab.services.run_telemetry import (
+    RunTelemetryCollector,
+    clear_pending_collector,
+    langfuse_status_from_config,
+    load_pending_collector,
+    save_pending_collector,
+)
 from tslab.services.frequency_detect import detect_frequency_from_dates
 from tslab.services.month_align import (
     compute_pair_overlap,
@@ -115,7 +114,7 @@ class CorrelationRunView:
     output_dir: str | None = None
     run_name: str | None = None
     tags: tuple[str, ...] = ()
-    category_names: tuple[str, ...] = ()
+    category_ids: tuple[int, ...] = ()
     status: str = "fertig"
 
     @property
@@ -124,7 +123,7 @@ class CorrelationRunView:
 
     @property
     def has_reporting(self) -> bool:
-        return PROTECTED_TAG in self.tags
+        return PROTECTED_CATEGORY in self.tags
 
     @property
     def browse_url(self) -> str | None:
@@ -149,7 +148,7 @@ class TsaRunView:
     created_at: datetime
     output_dir: str | None = None
     tags: tuple[str, ...] = ()
-    category_names: tuple[str, ...] = ()
+    category_ids: tuple[int, ...] = ()
 
     @property
     def display_name(self) -> str:
@@ -157,7 +156,7 @@ class TsaRunView:
 
     @property
     def has_reporting(self) -> bool:
-        return PROTECTED_TAG in self.tags
+        return PROTECTED_CATEGORY in self.tags
 
     @property
     def browse_url(self) -> str | None:
@@ -169,25 +168,19 @@ class TsaRunView:
         return f"/output/zip/{rel}" if rel else None
 
 
-def _series_category_id_set(session, ts: TimeSeries) -> set[int]:
-    ids = set(list_category_ids(session, ENTITY_SERIES, ts.id))
-    if ts.category_id is not None:
-        ids.add(ts.category_id)
-    return ids
-
 
 def _ts_to_meta(session, ts: TimeSeries, *, dates: list[date] | None = None) -> SeriesMeta:
     if dates is None:
         dates = available_dates_for_series(session, ts.id)
     freq_id, freq_label = detect_frequency_from_dates(dates) if dates else ("MS", "Monatlich")
-    tags = tuple(list_tags(session, ENTITY_SERIES, ts.id))
-    cat_ids = list(list_category_ids(session, ENTITY_SERIES, ts.id))
+    cat_ids = list_category_ids(session, ENTITY_SERIES, ts.id)
     if ts.category_id is not None and ts.category_id not in cat_ids:
-        cat_ids.insert(0, ts.category_id)
-    cat_names = list_category_names(session, ENTITY_SERIES, ts.id)
-    if not cat_names and ts.category and ts.category.name:
-        cat_names = [ts.category.name]
-    cat_label = ", ".join(cat_names) if cat_names else None
+        cat_ids = [ts.category_id, *cat_ids]
+    cat_names = tuple(list_category_names(session, ENTITY_SERIES, ts.id))
+    if ts.category_id is not None and not cat_names:
+        cat = get_category(session, ts.category_id)
+        if cat:
+            cat_names = (cat.name,)
     return SeriesMeta(
         slug=ts.slug,
         name=ts.name,
@@ -199,11 +192,11 @@ def _ts_to_meta(session, ts: TimeSeries, *, dates: list[date] | None = None) -> 
         frequency_label=freq_label,
         source_file=ts.source_file,
         id=ts.id,
-        tags=tags,
+        tags=cat_names,
         category_id=cat_ids[0] if cat_ids else ts.category_id,
-        category_name=cat_label,
+        category_name=", ".join(cat_names) if cat_names else None,
         category_ids=tuple(cat_ids),
-        category_names=tuple(cat_names),
+        category_names=cat_names,
         created_at=ts.created_at,
     )
 
@@ -357,36 +350,27 @@ class WebBackend:
         self,
         *,
         tag: str | None = None,
-        category_id: int | None = None,
-        category_ids: list[int] | None = None,
         include_hidden: bool = False,
     ) -> list[SeriesMeta]:
-        ids_filter = list(category_ids or [])
-        if category_id is not None and not ids_filter:
-            ids_filter = [category_id]
         if self.uses_mock:
-            return mock.mock_list_series(tag=tag, category_ids=ids_filter or None)
+            return mock.mock_list_series(tag=tag)
         with get_session() as session:
             rows = list_series(session)
             if not include_hidden:
                 rows = [ts for ts in rows if ts.hidden_at is None]
             if tag:
-                ids = set(entity_ids_with_tag(session, ENTITY_SERIES, tag))
+                cat = get_category_by_name(session, tag)
+                if cat is None:
+                    return []
+                ids = set(entity_ids_with_category(session, ENTITY_SERIES, cat.id))
                 rows = [ts for ts in rows if ts.id in ids]
-            if ids_filter:
-                id_set = set(ids_filter)
-                rows = [ts for ts in rows if id_set & _series_category_id_set(session, ts)]
             return [_ts_to_meta(session, ts) for ts in rows]
 
-    def list_used_categories(self) -> list[dict]:
-        """Kategorien, die mindestens einer Zeitreihe zugeordnet sind."""
+    def all_tags(self) -> list[str]:
         if self.uses_mock:
-            return mock.mock_list_categories()
-        used_ids: set[int] = set()
+            return mock.mock_all_tags()
         with get_session() as session:
-            for ts in list_series(session):
-                used_ids |= _series_category_id_set(session, ts)
-        return [c for c in self.list_categories() if c["id"] in used_ids]
+            return [c.name for c in list_categories(session)]
 
     def series_by_slug(self, slug: str) -> SeriesMeta | None:
         if self.uses_mock:
@@ -573,17 +557,74 @@ class WebBackend:
         return bool(model_id) and model_id not in ("none", "off", "0")
 
     def _maybe_generate_ai_report(
-        self, payload: dict, output_dir: str, *, run_type: str
+        self, payload: dict, output_dir: str, *, run_type: str, analysis_mode: str = "extended"
     ) -> dict | None:
         if not self._want_ai_report(payload):
             return None
         model_id = str(payload.get("report_model") or "").strip() or None
-        return generate_run_report(output_dir, model_id=model_id, run_type=run_type)
+        return generate_run_report(
+            output_dir,
+            model_id=model_id,
+            run_type=run_type,
+            analysis_mode=analysis_mode,
+        )
+
+    def prepare_output_report(
+        self,
+        output_dir: str,
+        *,
+        model_id: str | None = None,
+        run_type: str = "Analyse",
+        analysis_mode: str = "extended",
+    ) -> dict:
+        return prepare_report_session(
+            output_dir,
+            model_id=model_id,
+            run_type=run_type,
+            analysis_mode=analysis_mode,
+        )
+
+    def step_output_report(
+        self, output_dir: str, *, action: str | None = None
+    ) -> dict:
+        return step_report_session(output_dir, action=action, auto_pause=False)
 
     def generate_output_report(
-        self, output_dir: str, *, model_id: str | None = None, run_type: str = "Analyse"
+        self,
+        output_dir: str,
+        *,
+        model_id: str | None = None,
+        run_type: str = "Analyse",
+        analysis_mode: str = "extended",
     ) -> dict:
-        return generate_run_report(output_dir, model_id=model_id, run_type=run_type)
+        return generate_run_report(
+            output_dir,
+            model_id=model_id,
+            run_type=run_type,
+            analysis_mode=analysis_mode,
+            interactive=False,
+        )
+
+    def finalize_deferred_run(self, output_dir: str, *, report_result: dict | None) -> dict:
+        collector = load_pending_collector(output_dir)
+        if collector is None:
+            return {"ok": False, "message": "Kein ausstehender Lauf fuer Finalisierung."}
+        browse = browse_url_for(output_dir)
+        collector.set_output(output_dir, browse_url=browse)
+        collector.set_langfuse_status(langfuse_status_from_config(load_report_config()))
+        reports = []
+        if report_result:
+            reports = report_result.get("reports") or []
+            if not reports and report_result.get("report"):
+                reports = [report_result["report"]]
+            collector.merge_ai_reports(reports)
+        run_pdf = collector.write_pdf()
+        clear_pending_collector(output_dir)
+        return {
+            "ok": True,
+            "run_report": run_pdf,
+            "message": run_pdf.get("message", "Laufbericht erstellt."),
+        }
 
     def _finalize_run(
         self,
@@ -593,10 +634,23 @@ class WebBackend:
         output_dir: str,
         browse_url: str | None,
         ai_report: dict | None,
+        defer_finalize: bool = False,
     ) -> dict:
+        if defer_finalize:
+            save_pending_collector(collector, output_dir)
+            result["finalize_pending"] = True
+            result["report_deferred"] = True
+            return result
         collector.set_output(output_dir, browse_url=browse_url)
         collector.set_langfuse_status(langfuse_status_from_config(load_report_config()))
-        collector.merge_ai_report(ai_report)
+        if ai_report:
+            reports = ai_report.get("reports") or []
+            if not reports and ai_report.get("report"):
+                reports = [ai_report["report"]]
+            if reports:
+                collector.merge_ai_reports(reports)
+            else:
+                collector.merge_ai_report(ai_report)
         run_pdf = collector.write_pdf()
         result["run_report"] = run_pdf
         if run_pdf.get("ok") and run_pdf.get("url"):
@@ -646,28 +700,18 @@ class WebBackend:
             delete_category(session, category_id)
             return {"ok": True}
 
-    def update_series_meta(
-        self,
-        slug: str,
-        *,
-        name: str,
-        category_id: int | None = None,
-        category_ids: list[int] | None = None,
-    ) -> dict:
+    def update_series_meta(self, slug: str, *, name: str) -> dict:
         clean = name.strip()
         if not clean:
             raise ValueError("Name darf nicht leer sein.")
-        ids = list(category_ids if category_ids is not None else ([] if category_id is None else [category_id]))
         if self.uses_mock:
-            return mock.mock_update_series_meta(
-                slug, name=clean, category_id=category_id, category_ids=ids
-            )
+            return mock.mock_update_series_meta(slug, name=clean)
         with get_session() as session:
             ts = get_series_by_slug(session, slug)
             if ts is None:
                 raise ValueError(f"Zeitreihe '{slug}' nicht gefunden.")
             ts.name = clean
-            assign_series_categories(session, ts.id, ids)
+            session.commit()
             session.refresh(ts)
             return {"ok": True, "series": mock.series_to_dict(_ts_to_meta(session, ts))}
 
@@ -675,7 +719,6 @@ class WebBackend:
         self,
         *,
         tag: str | None = None,
-        category_id: int | None = None,
         include_hidden: bool = False,
     ) -> list[CorrelationRunView]:
         if self.uses_mock:
@@ -693,17 +736,17 @@ class WebBackend:
                     created_at=r.created_at,
                     output_dir=r.output_dir,
                     run_name=suggest_run_name(r.series_a, r.series_b),
-                    category_names=mock.mock_run_category_names("correlation", r.id),
+                    tags=tuple(mock.mock_run_category_names("correlation", r.id)),
+                    category_ids=tuple(mock.mock_entity_category_ids("correlation", r.id)),
                 )
                 for r in mock.MOCK_CORRELATION_HISTORY
             ]
             if tag:
-                runs = [r for r in runs if tag in r.tags]
-            if category_id is not None:
                 runs = [
                     r
                     for r in runs
-                    if mock.mock_run_matches_category("correlation", r.id, [r.series_a, r.series_b], category_id)
+                    if tag in r.tags
+                    or mock.mock_run_matches_tag("correlation", r.id, [r.series_a, r.series_b], tag)
                 ]
             return runs
 
@@ -714,22 +757,16 @@ class WebBackend:
                 rows = [r for r in rows if r.hidden_at is None]
             views: list[CorrelationRunView] = []
             for r in rows:
-                tags = tuple(list_tags(session, ENTITY_CORRELATION, r.id))
-                if tag and tag not in tags:
-                    continue
-                if category_id is not None:
-                    run_cats = set(list_category_ids(session, ENTITY_CORRELATION, r.id))
-                    if category_id not in run_cats:
-                        ts_a = get_series_by_slug(session, r.series_a_slug)
-                        ts_b = get_series_by_slug(session, r.series_b_slug)
-                        match = False
-                        for ts in (ts_a, ts_b):
-                            if ts is not None and category_id in _series_category_id_set(session, ts):
-                                match = True
-                                break
-                        if not match:
-                            continue
                 cat_names = tuple(list_category_names(session, ENTITY_CORRELATION, r.id))
+                cat_ids = tuple(list_category_ids(session, ENTITY_CORRELATION, r.id))
+                if tag and not entity_matches_category_name(
+                    session,
+                    ENTITY_CORRELATION,
+                    r.id,
+                    tag,
+                    series_slugs=[r.series_a_slug, r.series_b_slug],
+                ):
+                    continue
                 views.append(
                     CorrelationRunView(
                         id=r.id,
@@ -744,8 +781,8 @@ class WebBackend:
                         created_at=r.created_at,
                         output_dir=r.output_dir,
                         run_name=r.run_name or suggest_run_name(r.series_a_slug, r.series_b_slug),
-                        tags=tags,
-                        category_names=cat_names,
+                        tags=cat_names,
+                        category_ids=cat_ids,
                     )
                 )
             return views
@@ -754,7 +791,6 @@ class WebBackend:
         self,
         *,
         tag: str | None = None,
-        category_id: int | None = None,
         include_hidden: bool = False,
     ) -> list[TsaRunView]:
         if self.uses_mock:
@@ -770,17 +806,17 @@ class WebBackend:
                     status=r.status,
                     created_at=r.created_at,
                     output_dir=r.output_dir,
-                    category_names=mock.mock_run_category_names("tsa", r.id),
+                    tags=tuple(mock.mock_run_category_names("tsa", r.id)),
+                    category_ids=tuple(mock.mock_entity_category_ids("tsa", r.id)),
                 )
                 for r in mock.MOCK_TSA_HISTORY
             ]
             if tag:
-                views = [v for v in views if tag in v.tags]
-            if category_id is not None:
                 views = [
                     v
                     for v in views
-                    if mock.mock_run_matches_category("tsa", v.id, [v.series_slug], category_id)
+                    if tag in v.tags
+                    or mock.mock_run_matches_tag("tsa", v.id, [v.series_slug], tag)
                 ]
             return views
 
@@ -794,20 +830,20 @@ class WebBackend:
                 rows = [r for r in rows if r.hidden_at is None]
             views: list[TsaRunView] = []
             for r in rows:
-                tags = tuple(list_tags(session, ENTITY_TSA, r.id))
-                if tag and tag not in tags:
+                cat_names = tuple(list_category_names(session, ENTITY_TSA, r.id))
+                cat_ids = tuple(list_category_ids(session, ENTITY_TSA, r.id))
+                if tag and not entity_matches_category_name(
+                    session,
+                    ENTITY_TSA,
+                    r.id,
+                    tag,
+                    series_slugs=[r.series_slug],
+                ):
                     continue
-                if category_id is not None:
-                    run_cats = set(list_category_ids(session, ENTITY_TSA, r.id))
-                    if category_id not in run_cats:
-                        ts = get_series_by_slug(session, r.series_slug)
-                        if ts is None or category_id not in _series_category_id_set(session, ts):
-                            continue
                 try:
                     models = json.loads(r.models)
                 except json.JSONDecodeError:
                     models = ["arma-garch"]
-                cat_names = tuple(list_category_names(session, ENTITY_TSA, r.id))
                 views.append(
                     TsaRunView(
                         id=r.id,
@@ -820,30 +856,11 @@ class WebBackend:
                         status=r.status,
                         created_at=r.created_at,
                         output_dir=r.output_dir,
-                        tags=tags,
-                        category_names=cat_names,
+                        tags=cat_names,
+                        category_ids=cat_ids,
                     )
                 )
-            if views:
-                return views
-
-        views = []
-        for r in mock.MOCK_TSA_HISTORY:
-            views.append(
-                TsaRunView(
-                    id=r.id,
-                    series_slug=r.series_slug,
-                    models=list(r.models),
-                    analysis_mode=r.analysis_mode,
-                    train_start=r.train_start,
-                    train_end=r.train_end,
-                    forecast_end=r.forecast_end,
-                    status=r.status,
-                    created_at=r.created_at,
-                    output_dir=r.output_dir,
-                )
-            )
-        return views
+            return views
 
     def _load_series_pandas(self, slug: str):
         if self.uses_mock:
@@ -1031,21 +1048,20 @@ class WebBackend:
             },
         }
         report = None
+        report_deferred = False
         if self._want_ai_report(payload):
-            with collector.track("ai_report", model=payload.get("report_model")):
-                report = self._maybe_generate_ai_report(payload, out, run_type="Korrelation")
-        if report:
-            result["report"] = report
-            if report.get("ok"):
-                result["message"] += f" · {report.get('message', 'KI-Bericht')}"
-                if report.get("ai_errors"):
-                    result["message"] += f" ⚠ {len(report['ai_errors'])} KI-Fehler"
+            report_deferred = True
+        if report_deferred:
+            result["report_model"] = payload.get("report_model")
+            result["analysis_mode"] = analysis_mode
+            result["run_type_label"] = "Korrelation"
         return self._finalize_run(
             result,
             collector=collector,
             output_dir=out,
             browse_url=browse,
             ai_report=report,
+            defer_finalize=report_deferred,
         )
 
     def run_tsa(self, payload: dict) -> dict:
@@ -1142,21 +1158,20 @@ class WebBackend:
             },
         }
         report = None
+        report_deferred = False
         if self._want_ai_report(payload):
-            with collector.track("ai_report", model=payload.get("report_model")):
-                report = self._maybe_generate_ai_report(payload, out, run_type="TSA")
-        if report:
-            result["report"] = report
-            if report.get("ok"):
-                result["message"] += f" · {report.get('message', 'KI-Bericht')}"
-                if report.get("ai_errors"):
-                    result["message"] += f" ⚠ {len(report['ai_errors'])} KI-Fehler"
+            report_deferred = True
+        if report_deferred:
+            result["report_model"] = payload.get("report_model")
+            result["analysis_mode"] = analysis_mode
+            result["run_type_label"] = "TSA"
         return self._finalize_run(
             result,
             collector=collector,
             output_dir=out,
             browse_url=browse,
             ai_report=report,
+            defer_finalize=report_deferred,
         )
 
     def tsa_window_preview(self, params: dict) -> dict:
@@ -1234,24 +1249,39 @@ class WebBackend:
     def update_tags(self, payload: dict) -> dict:
         entity_type = str(payload.get("entity_type", "")).strip()
         entity_id = payload.get("entity_id")
-        tags = payload.get("tags") or []
-        if not isinstance(tags, list):
-            raise ValueError("tags muss eine Liste sein.")
+        raw_ids = payload.get("category_ids")
+        if raw_ids is None:
+            raise ValueError("category_ids fehlt.")
+        if not isinstance(raw_ids, list):
+            raise ValueError("category_ids muss eine Liste sein.")
+        category_ids: list[int] = []
+        for raw in raw_ids:
+            if raw in (None, "", "null"):
+                continue
+            category_ids.append(int(raw))
         if self.uses_mock:
-            return {"ok": True, "tags": tags}
+            eid: int | str = str(entity_id) if entity_type == ENTITY_SERIES else int(entity_id)
+            names = mock.mock_set_entity_categories(entity_type, eid, category_ids)
+            return {"ok": True, "tags": names, "category_ids": category_ids}
         with get_session() as session:
             if entity_type == ENTITY_SERIES:
                 ts = get_series_by_slug(session, str(entity_id))
                 if ts is None:
                     raise LookupError("Zeitreihe nicht gefunden.")
-                eid = ts.id
+                assign_series_categories(session, ts.id, category_ids)
+                names = list_category_names(session, ENTITY_SERIES, ts.id)
             else:
                 eid = int(entity_id)
-            clean = set_tags(session, entity_type, eid, [str(t) for t in tags])
-        return {"ok": True, "tags": clean}
+                set_categories(session, entity_type, eid, category_ids)
+                names = list_category_names(session, entity_type, eid)
+        return {"ok": True, "tags": names, "category_ids": category_ids}
 
     def tag_suggestions(self, prefix: str = "") -> list[str]:
         if self.uses_mock:
-            return [PROTECTED_TAG, "_Delete_20260715"]
+            return mock.mock_all_tags()
         with get_session() as session:
-            return suggest_tags(session, prefix=prefix)
+            cats = list_categories(session)
+            if prefix:
+                needle = prefix.strip().lower()
+                return [c.name for c in cats if needle in c.name.lower()]
+            return [c.name for c in cats]

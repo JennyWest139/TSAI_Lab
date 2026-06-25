@@ -90,3 +90,28 @@ def entity_ids_with_tag(session: Session, entity_type: str, tag: str) -> list[in
             )
         ).all()
     )
+
+
+def list_all_tags(session: Session) -> list[str]:
+    return list(session.scalars(select(EntityTag.tag).distinct().order_by(EntityTag.tag)).all())
+
+
+def inherit_tags_from_series_slugs(
+    session: Session,
+    *,
+    entity_type: str,
+    entity_id: int,
+    series_slugs: list[str],
+) -> list[str]:
+    """Uebernimmt Vereinigung aller Tags der beteiligten Zeitreihen."""
+    from tslab.services.timeseries_store import get_series_by_slug
+
+    merged: set[str] = set()
+    for slug in series_slugs:
+        ts = get_series_by_slug(session, slug)
+        if ts is None:
+            continue
+        merged.update(list_tags(session, ENTITY_SERIES, ts.id))
+    if merged:
+        return set_tags(session, entity_type, entity_id, sorted(merged))
+    return []

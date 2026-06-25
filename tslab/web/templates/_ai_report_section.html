@@ -10,7 +10,7 @@
       <option value="{{ m.id }}">{{ m.label }}</option>
       {% endfor %}
     </select>
-    <p class="hint">Bei Modellwahl werden nach dem Lauf <code>ai_bericht.docx</code> und <code>ai_bericht.pdf</code> erstellt (PNG, TXT, Excel per KI).</p>
+    <p class="hint">Bei Modellwahl werden nach dem Lauf je Modellordner (TSA) bzw. im Lauf-Ordner (CORR) <code>ai_bericht.docx</code> und <code>ai_bericht.pdf</code> erstellt. Nach jeweils 5 KI-Anfragen erscheint ein Dialog zur 1-Minuten-Pause.</p>
   </div>
   {% else %}
   <p class="hint">KI-Berichte: <code>TSLAB_AI_REPORTS_ENABLED=1</code> und <code>OPENAI_API_KEY</code> in <code>.env</code> setzen, dann Web neu starten.</p>

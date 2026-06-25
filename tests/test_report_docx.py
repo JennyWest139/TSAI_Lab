@@ -61,7 +61,7 @@ class GenerateRunReportTests(unittest.TestCase):
                 )
                 result = generate_run_report(tmp)
         self.assertFalse(result["ok"])
-        self.assertIn("Keine PNG", result["message"])
+        self.assertIn("Keine Berichtsziele", result["message"])
 
 
 if __name__ == "__main__":

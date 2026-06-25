@@ -114,6 +114,35 @@ def write_run_report_pdf(path: Path, telemetry: RunTelemetry) -> Path:
     )
     story.append(Spacer(1, 0.4 * cm))
 
+    # KI Rate-Limit / Pausen
+    story.append(Paragraph("KI-Bericht — Rate-Limit &amp; Pausen", h1))
+    extra = telemetry.extra or {}
+    pause_count = int(extra.get("rate_limit_pause_count") or 0)
+    events = extra.get("rate_limit_events") or []
+    if pause_count or events:
+        story.append(
+            Paragraph(
+                f"Nutzer-Pausen (je {60}s): {pause_count} · Ereignisse gesamt: {len(events)}",
+                body,
+            )
+        )
+        for i, ev in enumerate(events, 1):
+            choice = ev.get("user_choice", "—")
+            choice_label = {
+                "pause": "1 Min. gewartet",
+                "finish": "sofort abgeschlossen",
+            }.get(choice, choice)
+            story.append(
+                Paragraph(
+                    f"{i}. Nach Aufruf {ev.get('at_call', '?')}: {choice_label} "
+                    f"({ev.get('reason', '')})",
+                    body,
+                )
+            )
+    else:
+        story.append(Paragraph("Keine Rate-Limit-Pausen erfasst.", body))
+    story.append(Spacer(1, 0.4 * cm))
+
     # Warnungen / Fehler
     story.append(Paragraph("Warnungen", h1))
     if telemetry.warnings:

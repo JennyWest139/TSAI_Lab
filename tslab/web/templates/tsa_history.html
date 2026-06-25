@@ -8,10 +8,10 @@
   <div class="card-header list-toolbar">
     <h2>Läufe</h2>
     <div class="list-toolbar-actions">
-      <select id="categoryFilter">
-        <option value="">Alle Kategorien</option>
-        {% for c in categories %}
-        <option value="{{ c.id }}" {% if active_category_id == c.id %}selected{% endif %}>{{ c.name }}</option>
+      <select id="tagFilter">
+        <option value="">Alle Tags</option>
+        {% for t in all_tags %}
+        <option value="{{ t }}" {% if active_tag == t %}selected{% endif %}>{{ t }}</option>
         {% endfor %}
       </select>
       <input type="search" id="listSearch" placeholder="Suche (Name, Serie …)">
@@ -24,7 +24,7 @@
         <tr>
           <th>Datum</th>
           <th>Serie</th>
-          <th>Kategorien</th>
+          <th>Tags</th>
           <th>Modelle</th>
           <th>Training</th>
           <th>Status</th>
@@ -34,10 +34,15 @@
       </thead>
       <tbody>
         {% for r in runs %}
-        <tr data-search="{{ (r.series_slug ~ ' ' ~ r.display_name ~ ' ' ~ (r.category_names|join(' ')) ~ ' ' ~ (r.models|join(' ')))|lower }}">
+        <tr data-search="{{ (r.series_slug ~ ' ' ~ r.display_name ~ ' ' ~ (r.tags|join(' ')) ~ ' ' ~ (r.models|join(' ')))|lower }}">
           <td class="mono">{{ r.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
           <td>{{ r.series_slug }}</td>
-          <td>{{ r.category_names|join(', ') or '—' }}</td>
+          <td class="tag-cell tag-shuttle-trigger"
+              role="button" tabindex="0"
+              data-entity-type="tsa"
+              data-entity-id="{{ r.id }}"
+              data-category-ids="{{ r.category_ids|join(',') if r.category_ids else '' }}"
+              title="Tags bearbeiten">{{ r.tags|join(', ') or '—' }}</td>
           <td>{% for m in r.models %}<span class="badge badge-sm">{{ m }}</span> {% endfor %}</td>
           <td class="mono">{{ r.train_start }} → {{ r.train_end }}</td>
           <td><span class="badge badge-ok">{{ r.status }}</span></td>
@@ -63,6 +68,6 @@
 {% block scripts %}
 <script>
   TSLab.initCore();
-  TSLab.initListToolbar({ categoryFilterId: "categoryFilter", searchInputId: "listSearch", tableId: "tsaHistoryTable" });
+  TSLab.initListToolbar({ tagFilterId: "tagFilter", searchInputId: "listSearch", tableId: "tsaHistoryTable" });
 </script>
 {% endblock %}

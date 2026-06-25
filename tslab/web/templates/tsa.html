@@ -16,7 +16,7 @@
         <label for="tsaSeries">Zeitreihe</label>
         <select id="tsaSeries" name="series_slug" required>
           {% for s in series %}
-          <option value="{{ s.slug }}" data-category-id="{{ s.category_id or '' }}" {% if s.slug == 'pdax' %}selected{% endif %}>{{ s.label_de }}</option>
+          <option value="{{ s.slug }}" {% if s.slug == 'pdax' %}selected{% endif %}>{{ s.label_de }}</option>
           {% endfor %}
         </select>
       </div>

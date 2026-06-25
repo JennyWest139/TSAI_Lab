@@ -39,26 +39,12 @@
   </div>
 
   <section class="card">
-    <h2>Kategorien</h2>
-    <div class="dual-list-picker">
-      <div class="dual-list-col">
-        <label for="categorySelected">Zugeordnet</label>
-        <select id="categorySelected" multiple size="8"></select>
-      </div>
-      <div class="dual-list-actions">
-        <button type="button" class="btn btn-ghost btn-sm" id="catAddOne" title="Auswählen">&lt;</button>
-        <button type="button" class="btn btn-ghost btn-sm" id="catAddAll" title="Alle auswählen">&lt;&lt;</button>
-        <button type="button" class="btn btn-ghost btn-sm" id="catRemOne" title="Entfernen">&gt;</button>
-        <button type="button" class="btn btn-ghost btn-sm" id="catRemAll" title="Alle entfernen">&gt;&gt;</button>
-      </div>
-      <div class="dual-list-col">
-        <label for="categoryAvailable">Verfügbar</label>
-        <select id="categoryAvailable" multiple size="8"></select>
-      </div>
-    </div>
-    <p class="hint" style="margin-top:0.75rem;">
-      <a href="{{ url_for('categories_page', return_to=request.path) }}">Neue Kategorie anlegen</a>
-    </p>
+    <h2>Tags</h2>
+    <p id="seriesTagsDisplay" class="tag-display">{{ (series.tags|join(', ') if series.tags else series.category_names|join(', ')) or '—' }}</p>
+    <button type="button" class="btn btn-ghost" id="seriesTagsEditBtn"
+            data-entity-type="series"
+            data-entity-id="{{ series.slug }}"
+            data-category-ids="{{ series.category_ids|join(',') if series.category_ids else '' }}">Tags bearbeiten</button>
     <div class="form-actions">
       <button type="button" id="seriesSaveBtn" class="btn btn-primary">Speichern</button>
     </div>
@@ -76,10 +62,7 @@
 <script src="{{ url_for('static', filename='js/charts.js') }}"></script>
 <script>
   TSLab.initCore();
-  TSLab.initSeriesEdit({{ series.slug | tojson }}, {
-    categoryIds: {{ series.category_ids | default([]) | list | tojson }},
-    allCategories: {{ categories | tojson }}
-  });
+  TSLab.initSeriesEdit({{ series.slug | tojson }});
   TSLabCharts.initSeriesDetail({{ series.slug | tojson }});
 </script>
 {% endblock %}

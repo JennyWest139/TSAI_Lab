@@ -1,11 +1,11 @@
 {% extends "base.html" %}
-{% block title %}Kategorien{% endblock %}
-{% block page_title %}Kategorien{% endblock %}
-{% block page_subtitle %}Zeitreihen gruppieren und filtern{% endblock %}
+{% block title %}Tags{% endblock %}
+{% block page_title %}Tags{% endblock %}
+{% block page_subtitle %}Objekte gruppieren und filtern{% endblock %}
 
 {% block content %}
 <section class="card">
-  <h2>Neue Kategorie</h2>
+  <h2>Neuer Tag</h2>
   <form id="categoryCreateForm" class="grid two-col" action="#" method="post" onsubmit="return false;">
     <div class="field-row">
       <label for="newCategoryName">Name</label>
@@ -18,11 +18,11 @@
       {% endif %}
     </div>
   </form>
-  <p class="hint"><code>Reporting</code> ist reserviert und wird bei der Migration automatisch angelegt.</p>
+  <p class="hint"><code>Reporting</code> ist reserviert und im System immer verfügbar.</p>
 </section>
 
 <section class="card">
-  <h2>Vorhandene Kategorien</h2>
+  <h2>Vorhandene Tags</h2>
   <div class="table-wrap">
     <table class="data-table" id="categoriesTable">
       <thead>
@@ -49,7 +49,7 @@
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="3" class="hint">Noch keine Kategorien — bitte <code>python scripts/db_migrate.py</code> ausführen.</td></tr>
+        <tr><td colspan="3" class="hint">Noch keine Tags — bitte <code>python scripts/db_migrate.py</code> ausführen.</td></tr>
         {% endfor %}
       </tbody>
     </table>

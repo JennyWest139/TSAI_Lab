@@ -103,8 +103,12 @@ class OpenAIProvider(LLMProvider):
         self._api_key = api_key
         self._config = config
         self._use_langfuse = langfuse_configured(config)
+        self._client_instance = None
+        self._client_is_langfuse = False
 
     def _client(self):
+        if self._client_instance is not None:
+            return self._client_instance
         if not self._api_key:
             raise ValueError(
                 "OPENAI_API_KEY fehlt. Bitte in .env setzen (nicht committen)."
@@ -112,11 +116,18 @@ class OpenAIProvider(LLMProvider):
         if self._use_langfuse:
             try:
                 from langfuse.openai import OpenAI  # type: ignore[import-untyped]
+
+                self._client_is_langfuse = True
             except ImportError:
                 from openai import OpenAI  # type: ignore[import-untyped]
+
+                self._client_is_langfuse = False
         else:
             from openai import OpenAI  # type: ignore[import-untyped]
-        return OpenAI(api_key=self._api_key)
+
+            self._client_is_langfuse = False
+        self._client_instance = OpenAI(api_key=self._api_key)
+        return self._client_instance
 
     def _create_completion(self, *, model: str, messages: list, max_tokens: int, trace_name: str):
         client = self._client()
@@ -125,8 +136,9 @@ class OpenAIProvider(LLMProvider):
             "messages": messages,
             **_token_limit_kw(model, max_tokens),
         }
-        if self._use_langfuse:
-            kwargs["name"] = trace_name
+        # OpenAI SDK 2.x akzeptiert kein legacy-Langfuse-Argument "name".
+        if trace_name and not self._client_is_langfuse:
+            kwargs["metadata"] = {"tslab_trace": trace_name}
         return client.chat.completions.create(**kwargs)
 
     def complete_text(
@@ -239,6 +251,20 @@ def init_langfuse(config: Any) -> bool:
     if host:
         os.environ.setdefault("LANGFUSE_HOST", host)
     return bool(pk and sk)
+
+
+def is_rate_limit_error(exc: BaseException) -> bool:
+    """Erkennt OpenAI/API-Rate-Limits (HTTP 429, TPM/RPM)."""
+    msg = str(exc).lower()
+    if "rate limit" in msg or "too many requests" in msg or "429" in msg:
+        return True
+    status = getattr(exc, "status_code", None) or getattr(exc, "code", None)
+    if status == 429:
+        return True
+    resp = getattr(exc, "response", None)
+    if resp is not None and getattr(resp, "status_code", None) == 429:
+        return True
+    return False
 
 
 def flush_langfuse() -> None:

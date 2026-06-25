@@ -38,34 +38,20 @@ def create_app(*, use_mock: bool = False) -> Flask:
             "uses_mock": backend.uses_mock,
             "ai_reports_enabled": backend.ai_reports_enabled,
             "report_models": backend.list_report_models(),
-            "categories": backend.list_categories(),
+            "all_tags": backend.all_tags(),
         }
 
+    def _active_tag() -> str | None:
+        tag = (request.args.get("tag") or "").strip()
+        return tag or None
+
     def _series_dicts():
-        tag = request.args.get("tag") or None
-        category_ids = _category_ids_arg()
+        tag = _active_tag()
         include_hidden = request.args.get("include_hidden", "0") in ("1", "true", "yes")
         return [
             mock.series_to_dict(s)
-            for s in backend.list_series(
-                tag=tag, category_ids=category_ids or None, include_hidden=include_hidden
-            )
+            for s in backend.list_series(tag=tag, include_hidden=include_hidden)
         ]
-
-    def _category_ids_arg() -> list[int]:
-        ids: list[int] = []
-        for raw in request.args.getlist("category_id"):
-            if raw in (None, "", "all"):
-                continue
-            try:
-                ids.append(int(raw))
-            except ValueError:
-                continue
-        return ids
-
-    def _category_id_arg() -> int | None:
-        ids = _category_ids_arg()
-        return ids[0] if len(ids) == 1 else None
 
     @app.get("/")
     def dashboard():
@@ -83,20 +69,18 @@ def create_app(*, use_mock: bool = False) -> Flask:
 
     @app.get("/series")
     def series_page():
-        cat_id = _category_id_arg()
         return render_template(
             "series.html",
             page="series",
-            series=backend.list_series(category_ids=[cat_id] if cat_id else None),
-            categories=backend.list_used_categories(),
-            active_category_id=cat_id,
+            series=backend.list_series(tag=_active_tag()),
+            active_tag=_active_tag(),
         )
 
-    @app.get("/categories")
-    def categories_page():
+    @app.get("/tags")
+    def tags_page():
         return render_template(
             "categories.html",
-            page="categories",
+            page="tags",
             categories=backend.list_categories(),
             return_to=request.args.get("return_to") or "",
         )
@@ -110,7 +94,6 @@ def create_app(*, use_mock: bool = False) -> Flask:
             "series_detail.html",
             page="series",
             series=s,
-            categories=backend.list_categories(),
         )
 
     @app.get("/correlation")
@@ -119,7 +102,6 @@ def create_app(*, use_mock: bool = False) -> Flask:
             "correlation.html",
             page="correlation",
             series=backend.list_series(),
-            categories=backend.list_categories(),
         )
 
     @app.get("/correlation/history")
@@ -127,9 +109,8 @@ def create_app(*, use_mock: bool = False) -> Flask:
         return render_template(
             "correlation_history.html",
             page="correlation_history",
-            runs=backend.list_correlation_history(category_id=_category_id_arg()),
-            categories=backend.list_categories(),
-            active_category_id=_category_id_arg(),
+            runs=backend.list_correlation_history(tag=_active_tag()),
+            active_tag=_active_tag(),
         )
 
     @app.get("/tsa")
@@ -139,7 +120,6 @@ def create_app(*, use_mock: bool = False) -> Flask:
             page="tsa",
             series=backend.list_series(),
             models=mock.TSA_MODELS,
-            categories=backend.list_categories(),
             order_rows=order_table_rows(),
         )
 
@@ -148,10 +128,9 @@ def create_app(*, use_mock: bool = False) -> Flask:
         return render_template(
             "tsa_history.html",
             page="tsa_history",
-            runs=backend.list_tsa_history(category_id=_category_id_arg()),
+            runs=backend.list_tsa_history(tag=_active_tag()),
             series=backend.list_series(),
-            categories=backend.list_categories(),
-            active_category_id=_category_id_arg(),
+            active_tag=_active_tag(),
         )
 
     @app.get("/output/browse/")
@@ -479,23 +458,8 @@ def create_app(*, use_mock: bool = False) -> Flask:
     def api_series_update(slug: str):
         body = request.get_json(silent=True) or {}
         try:
-            cat_ids_raw = body.get("category_ids")
-            category_ids: list[int] | None = None
-            if cat_ids_raw is not None:
-                category_ids = []
-                for raw in cat_ids_raw if isinstance(cat_ids_raw, list) else []:
-                    if raw in (None, "", "null"):
-                        continue
-                    category_ids.append(int(raw))
-            cat = body.get("category_id")
-            category_id = int(cat) if cat not in (None, "", "null") else None
             return jsonify(
-                backend.update_series_meta(
-                    slug,
-                    name=str(body.get("name", "")),
-                    category_id=category_id,
-                    category_ids=category_ids,
-                )
+                backend.update_series_meta(slug, name=str(body.get("name", "")))
             )
         except ValueError as exc:
             return jsonify({"ok": False, "message": str(exc)}), 400
@@ -521,11 +485,60 @@ def create_app(*, use_mock: bool = False) -> Flask:
                 output_dir,
                 model_id=body.get("report_model"),
                 run_type=str(body.get("run_type") or "Analyse"),
+                analysis_mode=str(body.get("analysis_mode") or "extended"),
             )
             return jsonify(result)
         except ValueError as exc:
             return jsonify({"ok": False, "message": str(exc)}), 400
         except Exception as exc:
             return jsonify({"ok": False, "message": str(exc)}), 500
+
+    @app.post("/api/report/session/prepare")
+    def api_report_session_prepare():
+        body = request.get_json(silent=True) or {}
+        output_dir = str(body.get("output_dir", "")).strip()
+        if not output_dir:
+            return jsonify({"ok": False, "message": "output_dir fehlt."}), 400
+        try:
+            return jsonify(
+                backend.prepare_output_report(
+                    output_dir,
+                    model_id=body.get("report_model"),
+                    run_type=str(body.get("run_type") or "Analyse"),
+                    analysis_mode=str(body.get("analysis_mode") or "extended"),
+                )
+            )
+        except ValueError as exc:
+            return jsonify({"ok": False, "message": str(exc)}), 400
+
+    @app.post("/api/report/session/step")
+    def api_report_session_step():
+        body = request.get_json(silent=True) or {}
+        output_dir = str(body.get("output_dir", "")).strip()
+        if not output_dir:
+            return jsonify({"ok": False, "message": "output_dir fehlt."}), 400
+        action = body.get("action")
+        if action is not None:
+            action = str(action).strip() or None
+        try:
+            return jsonify(backend.step_output_report(output_dir, action=action))
+        except ValueError as exc:
+            return jsonify({"ok": False, "message": str(exc)}), 400
+
+    @app.post("/api/run/finalize")
+    def api_run_finalize():
+        body = request.get_json(silent=True) or {}
+        output_dir = str(body.get("output_dir", "")).strip()
+        if not output_dir:
+            return jsonify({"ok": False, "message": "output_dir fehlt."}), 400
+        try:
+            return jsonify(
+                backend.finalize_deferred_run(
+                    output_dir,
+                    report_result=body.get("report_result"),
+                )
+            )
+        except ValueError as exc:
+            return jsonify({"ok": False, "message": str(exc)}), 400
 
     return app

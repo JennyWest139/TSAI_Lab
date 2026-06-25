@@ -8,10 +8,10 @@
   <div class="card-header list-toolbar">
     <h2>Zeitreihen</h2>
     <div class="list-toolbar-actions">
-      <select id="categoryFilter" aria-label="Kategorie">
-        <option value="">Alle Kategorien</option>
-        {% for c in categories %}
-        <option value="{{ c.id }}" {% if active_category_id == c.id %}selected{% endif %}>{{ c.name }}</option>
+      <select id="tagFilter" aria-label="Tag">
+        <option value="">Alle Tags</option>
+        {% for t in all_tags %}
+        <option value="{{ t }}" {% if active_tag == t %}selected{% endif %}>{{ t }}</option>
         {% endfor %}
       </select>
       <input type="search" id="listSearch" placeholder="Suche (Name, Bezeichnung, Slug …)">
@@ -25,7 +25,7 @@
           <th>Datum</th>
           <th>Name</th>
           <th>Slug</th>
-          <th>Kategorien</th>
+          <th>Tags</th>
           <th>Fenster</th>
           <th>n</th>
           <th>Rhythmus</th>
@@ -36,7 +36,7 @@
       <tbody>
         {% for s in series %}
         <tr class="row-link" tabindex="0"
-            data-search="{{ (s.label_de ~ ' ' ~ s.slug ~ ' ' ~ s.name ~ ' ' ~ (s.category_name or '') ~ ' ' ~ (s.category_names|join(' ') if s.category_names else ''))|lower }}">
+            data-search="{{ (s.label_de ~ ' ' ~ s.slug ~ ' ' ~ s.name ~ ' ' ~ (s.tags|join(' ')))|lower }}">
           <td class="mono">{% if s.created_at %}{{ s.created_at.strftime('%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
           <td>
             <a class="series-link" href="{{ url_for('series_detail_page', slug=s.slug) }}">
@@ -44,16 +44,21 @@
             </a>
           </td>
           <td class="mono"><a class="series-link muted-link" href="{{ url_for('series_detail_page', slug=s.slug) }}">{{ s.slug }}</a></td>
-          <td>{{ (s.category_names|join(', ') if s.category_names else s.category_name) or '—' }}</td>
+          <td class="tag-cell tag-shuttle-trigger"
+              role="button" tabindex="0"
+              data-entity-type="series"
+              data-entity-id="{{ s.slug }}"
+              data-category-ids="{{ s.category_ids|join(',') if s.category_ids else '' }}"
+              title="Tags bearbeiten">{{ (s.tags|join(', ') if s.tags else s.category_names|join(', ')) or '—' }}</td>
           <td class="mono">{{ s.first_date }} → {{ s.last_date }}</td>
           <td>{{ s.observation_count }}</td>
           <td><span class="badge">{{ s.frequency_label }}</span></td>
           <td><span class="badge badge-ok">fertig</span></td>
           <td>
-            {% if s.category_name != 'Reporting' and 'Reporting' not in s.tags %}
+            {% if 'Reporting' not in s.tags and 'Reporting' not in (s.category_names or []) %}
             <button type="button" class="btn btn-ghost btn-sm" data-delete-trigger data-entity-type="series" data-entity-slug="{{ s.slug }}">Löschen</button>
             {% else %}
-            <span class="muted" title="Reporting-Kategorie: Löschen gesperrt">🔒</span>
+            <span class="muted" title="Reporting-Tag: Löschen gesperrt">🔒</span>
             {% endif %}
           </td>
         </tr>
@@ -68,7 +73,7 @@
 <script>
   TSLab.initCore();
   TSLab.initListToolbar({
-    categoryFilterId: "categoryFilter",
+    tagFilterId: "tagFilter",
     searchInputId: "listSearch",
     tableId: "seriesTable",
     showHiddenId: "showHidden",
