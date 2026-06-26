@@ -53,6 +53,10 @@ Schritt 4 — Time Series Analysis (TSA)
   • Menü „TSA → Neue Analyse“
   • Zeitreihe, Training Von/Bis, Prognose bis wählen
   • Modell(e) ankreuzen → „TSA starten“
+
+Optional — KI-Bericht
+  • Modell im Abschnitt „KI-Bericht (optional)“ wählen
+  • Bei Pausendialog: 1 Minute warten oder Bericht vorzeitig abschließen
         """.strip(),
     ),
     ManualSection(
@@ -62,6 +66,8 @@ Schritt 4 — Time Series Analysis (TSA)
 Upload: CSV mit Datumsspalte und Wertspalte importieren.
 Zeitreihen: Liste aller Reihen; Klick öffnet Detailgrafik.
 Korrelation / TSA: Analyseformulare mit Historie früherer Läufe.
+Output: Ergebnisordner öffnen, Dateien ansehen, Ordner als ZIP laden.
+Tags: Zeitreihen und Läufe kategorisieren; Listen lassen sich filtern.
 Hell/Dunkel: Umschalter oben rechts neben dem Hilfe-Button (?).
         """.strip(),
     ),
@@ -89,20 +95,24 @@ Analysemodus (thesis / extended). Die Vorschau zeigt bewusst die Niveaus,
 damit Sie Datenqualität und Trends erkennen.
 
 Ergebnisplots: Balkendiagramm der Lags, aligned_series.png mit
-Originalwerten und Trends, lag_correlations.csv.
+Originalwerten und Trends, lag_correlations.csv. Wenn ein KI-Modell gewählt
+wurde, entstehen zusätzlich ai_bericht.docx und ai_bericht.pdf im Laufordner.
         """.strip(),
     ),
     ManualSection(
         title="6. Time Series Analysis (TSA)",
         body="""
-Modelle: ARMA(1,1), GARCH(1,1), ARMA(1,1)-GARCH(1,1).
+Modelle: ARMA, GARCH, ARMA-GARCH. Die Ordnung kann automatisch per AIC
+gewählt werden oder als User-Order (p, q) für ARMA und GARCH.
 
 Analysemodus thesis: Stichprobe ab 12/1987, kontinuierliche Renditen
 ohne lineares Detrending (Diplomarbeit).
 
 Training endet am Cutoff-Datum; Prognose bis forecast_end.
-Output: Residuen-Diagnostik, Prognoseplots mit Quantilbändern,
-Niveau-Rücktransformation, coefficient_abgleich.txt (thesis).
+Output je Modellordner: Residuen-Diagnostik, Prognoseplots mit
+Quantilbändern, Niveau-Rücktransformation, summary.txt und bei thesis
+coefficient_abgleich.txt. Wenn ein KI-Modell gewählt wurde, entstehen
+ai_bericht.docx und ai_bericht.pdf je Modellordner.
         """.strip(),
     ),
     ManualSection(
@@ -114,6 +124,34 @@ wie die Stichprobe, skaliert auf die Balkenhöhen.
 
 Vergleichen Sie die Kurve mit den Balken: starke Abweichungen deuten auf
 Schiefe, Ausreißer oder multimodale Verteilungen hin — wichtig vor GARCH.
+        """.strip(),
+    ),
+    ManualSection(
+        title="8. Output, Tags und KI-Berichte",
+        body="""
+Output-Browser
+  • Menü „Output“ oder Link aus einer Historie öffnen
+  • Unterstützte Dateitypen: PNG/JPG, TXT/CSV/XLSX, PDF/DOCX, HTML/JSON
+  • Ordner können als ZIP heruntergeladen werden
+
+Tags
+  • Tags sind mehrere Kategorien pro Zeitreihe oder Lauf
+  • Neue Korrelationen/TSA-Läufe erben die Tags der beteiligten Zeitreihen
+  • „Reporting“ ist reserviert und markiert berichtsrelevante Einträge
+
+KI-Berichte aktivieren
+  • TSLAB_AI_REPORTS_ENABLED=1 setzen
+  • OPENAI_API_KEY setzen und Web neu starten
+  • Modelle: openai:gpt-4o-mini oder openai:gpt-4o (Gemini ist vorbereitet,
+    aber noch nicht implementiert)
+
+Ablauf
+  • Der Analyse-Lauf schreibt zuerst normale Artefakte in output/
+  • Danach wertet die Report-Session PNG, TXT und Tabellen aus
+  • Nach jeweils 5 KI-Anfragen oder bei Rate-Limits erscheint ein Dialog:
+    1 Minute warten oder vorzeitig abschließen
+  • Reports/laufbericht.pdf enthält Laufzeiten, Token, Langfuse-Status,
+    Pausenereignisse und Links zu Berichten
         """.strip(),
     ),
 ]
