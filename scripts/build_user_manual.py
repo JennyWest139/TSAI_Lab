@@ -126,7 +126,8 @@ def build_user_manual_pdf(output_path: Path | None = None) -> Path:
         story.append(Spacer(1, 0.2 * cm))
 
     story.append(PageBreak())
-    story.append(_para("8. Wörterbuch — Finanz- und Ökonometrie-Begriffe", styles["h1"]))
+    glossary_title = f"{len(SECTIONS) + 1}. Wörterbuch — Finanz- und Ökonometrie-Begriffe"
+    story.append(_para(glossary_title, styles["h1"]))
     story.append(
         _para(
             "Kurzdefinitionen für die Arbeit mit TSLab. Das Kapitel wird "
