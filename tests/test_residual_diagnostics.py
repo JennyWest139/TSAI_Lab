@@ -10,6 +10,9 @@ import numpy as np
 import pandas as pd
 
 from tslab.plots.series_display import SeriesDisplay
+from tslab.services.analysis_mode import AnalysisMode, get_analysis_mode_config
+from tslab.services.models_arma import fit_arma
+from tslab.services.models_garch import fit_garch
 from tslab.services.residual_diagnostics import (
     compute_residual_diagnostics,
     format_residual_diagnostics,
@@ -79,6 +82,59 @@ class ResidualDiagnosticsTests(unittest.TestCase):
             self.assertTrue((out / "test_model_diagnostics.txt").is_file())
             self.assertTrue((out / "test_model_residuals_acf.png").is_file())
             self.assertTrue((out / "test_model_residuals_qq.png").is_file())
+
+
+class ResidualModelIntegrationTests(unittest.TestCase):
+    """Integration: geschätzte Modelle → Residuen ohne verbleibende Struktur."""
+
+    def _gaussian_returns(self, n: int, seed: int, *, scale: float = 1.0) -> pd.Series:
+        rng = np.random.default_rng(seed)
+        idx = pd.date_range("2000-01-01", periods=n, freq="MS")
+        return pd.Series(rng.normal(0, scale, size=n), index=idx, name="r")
+
+    def test_arma_on_white_noise_residuals_pass_ljung_box_and_jb(self) -> None:
+        y = self._gaussian_returns(500, seed=11)
+        result, _ = fit_arma(y, (0, 0))
+        resid = pd.Series(result.resid, index=y.index).dropna()
+
+        diag = compute_residual_diagnostics(resid, ljung_lags=12)
+        self.assertTrue(
+            diag.passes_ljung_box_5pct,
+            f"Ljung-Box verworfen (min p={diag.ljung_box_min_p:.4f})",
+        )
+        self.assertTrue(
+            diag.passes_jarque_bera_5pct,
+            f"Jarque-Bera verworfen (p={diag.jarque_bera_p:.4f})",
+        )
+
+    def test_arma11_on_white_noise_residuals_pass_ljung_box_and_jb(self) -> None:
+        """Überparametrisiertes ARMA(1,1) auf weißem Rauschen — Residuen bleiben unkorreliert."""
+        y = self._gaussian_returns(600, seed=23)
+        result, _ = fit_arma(y, (1, 1))
+        resid = pd.Series(result.resid, index=y.index).dropna()
+
+        diag = compute_residual_diagnostics(resid, ljung_lags=10)
+        self.assertTrue(diag.passes_ljung_box_5pct)
+        self.assertTrue(diag.passes_jarque_bera_5pct)
+
+    def test_garch_std_residuals_pass_arch_lm_on_homoskedastic_returns(self) -> None:
+        extended = get_analysis_mode_config(AnalysisMode.EXTENDED)
+        y = self._gaussian_returns(500, seed=31, scale=0.02)
+        fit = fit_garch(y, extended, p=1, q=1)
+        std_resid = fit.standardized_residuals.dropna()
+
+        diag = compute_residual_diagnostics(
+            std_resid, ljung_lags=10, include_arch=True, arch_lags=8
+        )
+        self.assertTrue(
+            diag.passes_ljung_box_5pct,
+            f"Ljung-Box auf std. Residuen verworfen (min p={diag.ljung_box_min_p:.4f})",
+        )
+        self.assertIsNotNone(diag.arch_lm_p)
+        self.assertTrue(
+            diag.passes_arch_lm_5pct,
+            f"ARCH-LM auf std. Residuen verworfen (p={diag.arch_lm_p:.4f})",
+        )
 
 
 if __name__ == "__main__":
