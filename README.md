@@ -147,6 +147,8 @@ Ausgabe: `output/phase0_<modus>_<start>_to_<cutoff>/`
 | `tslab/services/timeseries_store.py` | Import, Laden, Slugs |
 | `tslab/services/analysis_window.py` | Start/Ende-Analysefenster |
 | `tslab/services/ingest_werte.py` | CSV (Fallback) |
+| `tslab/services/report_session.py` | optionale KI-Berichte mit Checkpoints / Rate-Limit-Pausen |
+| `tslab/web/output_browser.py` | sicherer Zugriff auf Ergebnisdateien und ZIP-Download |
 | `scripts/db_*.py` | DB-Setup & Tests |
 
 ## Korrelation (2 Zeitreihen)
@@ -188,6 +190,12 @@ Ausgabe: `output/tsa_<modus>_<start>_to_<cutoff>/`
 
 Pro Modell: Residuen/Volatilitaet, Prognose mit Quantilbaendern (0,5 % / 5 % / 50 % / 95 % / 99,5 %), `summary.txt`.
 
+Im Web kann die Modellordnung automatisch per AIC gewaehlt werden oder als
+User-Order (p, q) fuer ARMA und GARCH gesetzt werden. Prognoseplots zeigen
+standardmaessig nur den rechten Ausschnitt um den Cutoff; das sichtbare
+Fenster wird ueber `forecast_plot_window` in `config/defaults.yaml` oder im
+TSA-Formular gesteuert.
+
 ## Web-Dashboard (Flask + PostgreSQL)
 
 Standard in `config/defaults.yaml`: `database.use_sqlite: false`, URL `postgresql+psycopg2://tslab:tslab@localhost:5432/tslab`.
@@ -209,9 +217,63 @@ python scripts/run_web.py --no-mock-fallback
 **Live (PostgreSQL):** Serienliste, Überlappung, Korrelation (`POST /api/correlation/run`), TSA (`POST /api/tsa/run`), Upload-Vorschau und CSV-Import.  
 **Mock-Fallback:** Nur wenn die DB nicht erreichbar ist (`--mock` erzwingt Mock; `--no-mock-fallback` erzwingt PostgreSQL).
 
+### Tags, Suche und Ergebnisordner
+
+Die Web-Listen fuer Zeitreihen, Korrelationen und TSA-Laeufe unterstuetzen
+Suche und Tag-Filter. Tags sind n:m-Zuordnungen in `entity_categories`; neue
+Analyse-Laeufe erben die Vereinigung der Tags ihrer beteiligten Zeitreihen.
+Die reservierte Kategorie `Reporting` markiert berichtsrelevante Eintraege und
+kann nicht geloescht werden.
+
+Ergebnisordner sind ueber `/output/browse/` erreichbar. Einzeldateien werden
+nur fuer freigegebene Endungen ausgeliefert (`.png`, `.jpg`, `.txt`, `.csv`,
+`.xlsx`, `.pdf`, `.docx`, `.html`, `.json`), Unterordner koennen als ZIP
+heruntergeladen werden.
+
+### Optionale KI-Berichte (Word/PDF)
+
+KI-Berichte sind standardmaessig deaktiviert. Aktivierung fuer das Web:
+
+```powershell
+$env:TSLAB_AI_REPORTS_ENABLED = "1"
+$env:OPENAI_API_KEY = "sk-..."
+python scripts/run_web.py --no-mock-fallback
+```
+
+Alternativ koennen die Werte in einer lokalen `.env` oder in
+`config/defaults.yaml` gesetzt werden; API-Keys nicht committen. Die
+verfuegbaren Modelle kommen aus `ai_reports.models`. Aktuell ist OpenAI
+implementiert (`openai:gpt-4o-mini`, `openai:gpt-4o`); Gemini ist vorbereitet,
+aber im Provider noch nicht implementiert.
+
+Workflow:
+
+1. In Korrelation oder TSA im Abschnitt "KI-Bericht (optional)" ein Modell
+   waehlen.
+2. Der Analyse-Lauf schreibt zuerst die normalen Artefakte in `output/`.
+3. Danach erzeugt die Report-Session KI-Auswertungen aus PNG, TXT und
+   Tabellen. Bei TSA wird je Modellordner ein Bericht erstellt.
+4. Nach jeweils 5 KI-Anfragen oder bei API-Rate-Limits fragt die Weboberflaeche
+   nach einer 1-Minuten-Pause oder vorzeitigem Abschluss.
+
+Artefakte:
+
+- `ai_bericht.docx` und `ai_bericht.pdf` im Korrelationsordner bzw. je
+  TSA-Modellordner.
+- `Reports/laufbericht.pdf` mit Laufzeiten, Tokenverbrauch, Langfuse-Status,
+  Rate-Limit-/Pausenereignissen und Links zu erzeugten Berichten.
+
+Troubleshooting:
+
+- Keine Modelloption sichtbar: `TSLAB_AI_REPORTS_ENABLED=1` und
+  `OPENAI_API_KEY` pruefen, Web neu starten.
+- "Keine Berichtsziele": Der Zielordner enthaelt keine passenden PNG/TXT/
+  Tabellenartefakte.
+- Rate-Limit-Dialog: "Pause" wartet 60 Sekunden und setzt den Checkpoint
+  zurueck; "Abschliessen" erstellt einen unvollstaendigen Bericht mit Hinweis.
+
 ## Nächste Schritte
 
-1. `TsaHistory` in der DB (Web-Historie derzeit aus `output/tsa_*`)
-2. Asynchrone Läufe / Fortschrittsanzeige im Web
-3. PDF-Berichte (Gleichungen, Parameter, Diagnostik)
-4. KI-Bericht zur Korrelation (optional)
+1. Gemini-Provider fertig implementieren und in `requirements.txt` ergaenzen.
+2. Interaktive HTML-Charts fuer TSA-Ergebnisse vervollstaendigen.
+3. Lang laufende Analysejobs in einen Hintergrund-Worker auslagern.
