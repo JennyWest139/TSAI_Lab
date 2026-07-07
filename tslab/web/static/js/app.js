@@ -190,9 +190,17 @@ const TSLab = (() => {
       html += ` <span class="hint"> · ${data.rate_limit_pause_count}× 1-Min.-Pause</span>`;
     }
     if (data.report_in_progress) {
-      html += ` <span class="hint"> · KI-Berichte laufen im Hintergrund — Output-Ordner in einigen Minuten neu laden</span>`;
+      html += ` <span class="hint"> · KI-Berichte laufen im Hintergrund — Ordner in einigen Minuten neu laden</span>`;
     }
     const runRep = data.run_report;
+    const prepRep = data.prep_run_report;
+    const prepUrl =
+      (prepRep?.ok && prepRep.url) ||
+      prepRep?.url ||
+      data.job?.prep_run_report_url;
+    if (prepUrl) {
+      html += ` <a href="${prepUrl}" class="stat-link">Prep-Laufbericht (PDF)</a>`;
+    }
     if (runRep?.ok && runRep.url) {
       html += ` <a href="${runRep.url}" class="stat-link">Laufbericht (PDF)</a>`;
     }
@@ -379,6 +387,9 @@ const TSLab = (() => {
     if (finData.ok && finData.run_report) {
       runData.run_report = finData.run_report;
       runData.message += ` · ${finData.run_report.message || "Laufbericht"}`;
+    }
+    if (finData.prep_run_report) {
+      runData.prep_run_report = finData.prep_run_report;
     }
     if (finData.browse_url) {
       runData.browse_url = finData.browse_url;
@@ -1553,6 +1564,44 @@ const TSLab = (() => {
     saveBtn?.addEventListener("click", saveSeries);
   }
 
+  function initKiAbort() {
+    document.querySelectorAll("[data-ki-abort]").forEach((btn) => {
+      if (btn.dataset.kiAbortBound === "1") return;
+      btn.dataset.kiAbortBound = "1";
+      btn.addEventListener("click", async () => {
+        const outputDir = btn.dataset.outputDir;
+        if (!outputDir) return;
+        const ok = window.confirm(
+          "KI-Berichte jetzt beenden?\n\nDer Lauf wird abgeschlossen und im finalen Laufbericht dokumentiert, dass Sie das Beenden ausgelöst haben. Bereits erzeugte KI-Berichte bleiben erhalten."
+        );
+        if (!ok) return;
+        btn.disabled = true;
+        const label = btn.textContent;
+        btn.textContent = "Beende …";
+        try {
+          const res = await fetch("/api/report/abort", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ output_dir: outputDir }),
+          });
+          const data = await res.json();
+          if (!data.ok) {
+            toast(data.message || "Beenden fehlgeschlagen");
+            btn.disabled = false;
+            btn.textContent = label;
+            return;
+          }
+          toast(data.message || "KI-Lauf beendet");
+          window.location.reload();
+        } catch (err) {
+          toast(String(err));
+          btn.disabled = false;
+          btn.textContent = label;
+        }
+      });
+    });
+  }
+
   initCore();
   return {
     initCore,
@@ -1563,6 +1612,7 @@ const TSLab = (() => {
     initSeriesEdit,
     initListToolbar,
     initTagShuttle,
+    initKiAbort,
     toast,
   };
 })();

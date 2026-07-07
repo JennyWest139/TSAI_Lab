@@ -56,7 +56,8 @@ Schritt 4 — Time Series Analysis (TSA)
 
 Optional — KI-Bericht
   • Standard: Ohne KI (nur Analyse-Lauf)
-  • Alternativ eines von vier Modellen: GPT-4o mini, GPT-5 mini, GPT-5 nano, Gemini
+  • Alternativ eines von sechs Modellen: GPT-4o mini, GPT-5 mini, GPT-5 nano,
+    Gemini 3.1 Flash Lite, Gemini 2.5 Flash Lite, Gemini 2.5 Flash
   • Bei Pausendialog: 1 Minute warten oder Bericht vorzeitig abschließen
         """.strip(),
     ),
@@ -204,19 +205,22 @@ KI-Berichte aktivieren
   • GEMINI_API_KEY für Gemini (Provider noch in Entwicklung)
   • Web neu starten
 
-Modellauswahl (5 Optionen im Formular)
+Modellauswahl (7 Optionen im Formular)
   • Ohne KI — Standard, kein Word/PDF-Bericht
   • GPT-4o mini — OpenAI, Vision für Grafiken
   • GPT-5 mini — OpenAI, Vision für Grafiken
   • GPT-5 nano — OpenAI, Vision für Grafiken
-  • Gemini — Google (API-Key erforderlich; Auswahl sichtbar auch ohne Key)
+  • Gemini 3.1 Flash Lite — Google, günstig, Vision
+  • Gemini 2.5 Flash Lite — Google, günstig, Vision
+  • Gemini 2.5 Flash — Google, Vision
 
 Ohne passenden API-Key erscheint das Modell ausgegraut („API-Key fehlt“).
 
 Ablauf
   • Der Analyse-Lauf schreibt zuerst normale Artefakte in output/
   • Pro TSA-Modellordner: TSA_Bericht_<MODELL>_<KI>.docx/.pdf; Korrelation: CORR_Bericht_<KI>.docx/.pdf;
-    bei mehreren TSA-Modellen zusaetzlich Reports/Modellvergleich_<KI>.docx/.pdf
+    bei mehreren gewaehlten TSA-Modellen zusaetzlich Reports/Modellvergleich_<KI>.docx/.pdf
+    (Rangfolge nach Eignung/Qualitaet, ohne Prognose-Mittelwerte — diese nur in Modellordnern)
   • Aufbau: Executive Summary (Eignung Ja/Nein/Beschränkt, Qualität 1–5), fachliche Auswertung,
     eingebettete Grafiken, Anhang mit summary.txt
   • Nach jeweils 5 KI-Anfragen oder bei Rate-Limits erscheint ein Dialog:
@@ -289,10 +293,10 @@ GLOSSARY: list[ManualSection] = [
     ),
     ManualSection(
         title="KI-Bericht — Modellauswahl",
-        body="Fünf Optionen in Korrelation und TSA: (1) Ohne KI — Standard. "
-        "(2) GPT-4o mini, (3) GPT-5 mini, (4) GPT-5 nano über OPENAI_API_KEY. "
-        "(5) Gemini über GEMINI_API_KEY. OpenAI-Modelle analysieren PNG-Grafiken "
-        "per Vision; Gemini ist konfiguriert, der Provider wird noch ergänzt.",
+        body="Sieben Optionen in Korrelation und TSA: (1) Ohne KI — Standard. "
+        "(2–4) GPT-4o mini, GPT-5 mini, GPT-5 nano über OPENAI_API_KEY. "
+        "(5–7) Gemini 3.1 Flash Lite, 2.5 Flash Lite, 2.5 Flash über GEMINI_API_KEY "
+        "(Lite-Varianten zuerst, günstiger). Alle Modelle unterstützen Vision für PNG-Grafiken.",
     ),
     ManualSection(
         title="Volatilität (bedingt)",

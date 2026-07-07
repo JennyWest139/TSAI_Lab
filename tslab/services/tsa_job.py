@@ -47,7 +47,7 @@ from tslab.services.thesis_coefficients import (
     format_coefficient_abgleich,
     load_thesis_reference,
 )
-from tslab.services.output_naming import tsa_folder_name
+from tslab.services.output_naming import allocate_unique_output_folder, tsa_folder_name
 from tslab.services.order_selection import parse_order_list, resolve_orders
 from tslab.services.tsa_context import TSAContext, load_tsa_context
 
@@ -598,7 +598,9 @@ def run_tsa_job(
         train_start=ctx.study.start_date.date(),
         train_end=ctx.study.cutoff.date(),
     )
-    out = (output_root or resolve_output_dir()) / folder
+    root = output_root or resolve_output_dir()
+    folder = allocate_unique_output_folder(root, folder)
+    out = root / folder
     out.mkdir(parents=True, exist_ok=True)
 
     models_run: list[str] = []

@@ -11,6 +11,7 @@ TSLab Web-Dashboard (Flask) — Standard: PostgreSQL.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -18,6 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from tslab.db.engine import SETUP_HINT, get_database_display_name, get_database_url
+from tslab.services.ai_providers import gemini_sdk_available
 from tslab.web import create_app
 
 
@@ -51,6 +53,12 @@ def main() -> None:
 
     app = create_app(use_mock=args.mock)
     backend = app.extensions["tslab_backend"]
+
+    if os.environ.get("GEMINI_API_KEY", "").strip() and not gemini_sdk_available():
+        print(
+            "Hinweis: GEMINI_API_KEY ist gesetzt, aber google-genai fehlt in dieser Python-Umgebung."
+        )
+        print("  .venv\\Scripts\\python.exe -m pip install google-genai")
 
     print(f"TSLab UI: http://{args.host}:{args.port}/")
     print(f"Backend: {backend.mode_label}")

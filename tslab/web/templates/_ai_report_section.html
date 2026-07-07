@@ -16,7 +16,7 @@
 
       <option value="{{ m.id }}"{% if not m.available %} disabled{% endif %}>
 
-        {{ m.label }}{% if not m.available %} (API-Key fehlt){% endif %}
+        {{ m.label }}{% if not m.available %} ({{ m.unavailable_hint | default("API-Key fehlt") }}){% endif %}
 
       </option>
 
@@ -32,7 +32,8 @@
 
     {% endif %}
 
-    <p class="hint">Standard: <strong>Ohne KI</strong>. Verfügbare Modelle: GPT-4o mini, GPT-5 mini, GPT-5 nano, Gemini.
+    <p class="hint">Standard: <strong>Ohne KI</strong>. OpenAI: GPT-4o mini, GPT-5 mini, GPT-5 nano.
+      Gemini (günstiger zuerst): 3.1 Flash Lite, 2.5 Flash Lite, 2.5 Flash.
 
       Bei Modellwahl werden nach dem Lauf je TSA-Modellordner z.&nbsp;B.
 
@@ -40,9 +41,11 @@
 
       fuer Korrelation <code>CORR_AI_Bericht_GPT-4o-mini.pdf</code>,
 
-      bei mehreren TSA-Modellen zusaetzlich <code>Reports/Modellvergleich_…</code>
+      bei mehreren TSA-Modellen zusaetzlich <code>Reports/Modellvergleich_…</code>,
 
-      und <code>Reports/laufbericht.pdf</code>.
+      <code>Reports/prep_laufbericht.pdf</code> (sofort nach dem Lauf) und
+
+      <code>Reports/laufbericht.pdf</code> (final nach KI).
 
       Nach jeweils 5 KI-Anfragen erscheint ein Dialog zur 1-Minuten-Pause.</p>
 

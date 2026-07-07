@@ -281,6 +281,8 @@ select option {
 .btn-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); color: #fff; }
 .btn-ghost { background: var(--bg-elevated); border-color: var(--border); color: var(--text); }
 .btn-ghost:hover { background: var(--accent-soft); border-color: var(--accent); color: var(--text); }
+.btn-warn { background: rgba(180, 83, 9, 0.12); border-color: rgba(180, 83, 9, 0.35); color: var(--warning); }
+.btn-warn:hover { background: rgba(180, 83, 9, 0.2); border-color: var(--warning); color: var(--warning); }
 .btn-lg { padding: 0.7rem 1.5rem; font-size: 1rem; }
 
 .btn-icon {
@@ -444,12 +446,17 @@ input:focus, select:focus {
 .badge-ok { background: var(--success-bg); color: var(--success); }
 .badge-warn { background: rgba(180, 83, 9, 0.12); color: var(--warning); }
 .badge-incomplete { background: rgba(180, 50, 50, 0.1); color: #b43232; }
+.badge-failed { background: rgba(139, 0, 0, 0.12); color: #8b0000; }
 
 .reporting-status-banner {
   border-left: 4px solid var(--warning);
   margin-bottom: 1rem;
 }
+.reporting-status-banner.reporting-status-failed {
+  border-left-color: #b43232;
+}
 [data-theme="dark"] .badge-incomplete { color: #f85149; background: rgba(248, 81, 73, 0.12); }
+[data-theme="dark"] .badge-failed { color: #ff7b72; background: rgba(255, 123, 114, 0.15); }
 [data-theme="dark"] .badge-warn { background: rgba(210, 153, 34, 0.15); }
 
 .list-toolbar {

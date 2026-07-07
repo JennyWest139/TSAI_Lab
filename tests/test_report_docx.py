@@ -84,7 +84,9 @@ class GenerateRunReportTests(unittest.TestCase):
                     langfuse_host=None,
                     models=(),
                 )
-                result = generate_run_report(tmp)
+                result = generate_run_report(
+                    tmp, model_id="openai:gpt-4o-mini"
+                )
         self.assertFalse(result["ok"])
         self.assertIn("Keine Berichtsziele", result["message"])
 

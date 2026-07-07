@@ -100,6 +100,34 @@ def gemini_sdk_available() -> bool:
         return False
 
 
+def _gemini_uses_thinking(model: str) -> bool:
+    """Gemini 2.5+/3.x zaehlt Denk-Tokens gegen max_output_tokens (nicht bei Lite)."""
+    name = model.lower()
+    if "-lite" in name:
+        return False
+    return "gemini-2.5" in name or "gemini-3" in name
+
+
+def _gemini_output_token_budget(max_tokens: int, *, model: str) -> int:
+    if _gemini_uses_thinking(model):
+        return max(max_tokens, 4096)
+    return max_tokens
+
+
+def _text_from_gemini_response(resp: Any) -> str:
+    text = (getattr(resp, "text", None) or "").strip()
+    if text:
+        return text
+    parts_out: list[str] = []
+    for candidate in getattr(resp, "candidates", None) or []:
+        content = getattr(candidate, "content", None)
+        for part in getattr(content, "parts", None) or []:
+            part_text = getattr(part, "text", None)
+            if part_text and not getattr(part, "thought", False):
+                parts_out.append(str(part_text).strip())
+    return "\n".join(p for p in parts_out if p).strip()
+
+
 class LLMProvider(ABC):
     @abstractmethod
     def complete_text(
@@ -245,6 +273,19 @@ class GeminiProvider(LLMProvider):
         self._client_instance = genai.Client(api_key=self._api_key)
         return self._client_instance
 
+    def _build_generate_config(
+        self, *, model: str, system: str, max_tokens: int
+    ) -> Any:
+        from google.genai import types
+
+        output_tokens = _gemini_output_token_budget(max_tokens, model=model)
+        kwargs: dict[str, Any] = {"max_output_tokens": output_tokens}
+        if system.strip():
+            kwargs["system_instruction"] = system
+        if _gemini_uses_thinking(model):
+            kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
+        return types.GenerateContentConfig(**kwargs)
+
     def _generate(
         self,
         *,
@@ -253,20 +294,13 @@ class GeminiProvider(LLMProvider):
         system: str,
         max_tokens: int,
     ) -> LLMResponse:
-        from google.genai import types
-
-        config = types.GenerateContentConfig(max_output_tokens=max_tokens)
-        if system.strip():
-            config = types.GenerateContentConfig(
-                max_output_tokens=max_tokens,
-                system_instruction=system,
-            )
+        config = self._build_generate_config(model=model, system=system, max_tokens=max_tokens)
         resp = self._client().models.generate_content(
             model=model,
             contents=contents,
             config=config,
         )
-        text = (getattr(resp, "text", None) or "").strip()
+        text = _text_from_gemini_response(resp)
         return LLMResponse(text=text, usage=_usage_from_gemini_response(resp, model=model))
 
     def complete_text(

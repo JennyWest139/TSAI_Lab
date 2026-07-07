@@ -16,7 +16,7 @@ from tslab.services.correlation import (
     load_pair_for_correlation,
     run_correlation,
 )
-from tslab.services.output_naming import correlation_folder_name
+from tslab.services.output_naming import allocate_unique_output_folder, correlation_folder_name
 from tslab.plots.correlation_plots import plot_aligned_series, plot_cross_correlation_bars
 
 
@@ -106,7 +106,9 @@ def run_correlation_job(
         start_date=result.study.start_date.date(),
         end_date=result.study.end_date.date(),
     )
-    out = (output_root or resolve_output_dir()) / label
+    root = output_root or resolve_output_dir()
+    label = allocate_unique_output_folder(root, label)
+    out = root / label
     out.mkdir(parents=True, exist_ok=True)
 
     write_dataframe_excel(result.table, out / "lag_correlations", sheet_name="Korrelation")

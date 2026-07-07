@@ -45,6 +45,33 @@ class MockTagTests(unittest.TestCase):
 
 
 class RunReportPdfTests(unittest.TestCase):
+    def test_write_pdf_prep_and_final_titles(self) -> None:
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc)
+        telemetry = RunTelemetry(
+            run_type="Korrelation",
+            started_at=now,
+            output_dir="/tmp/test_run",
+            components=[
+                ComponentTiming("job", 123.4, started_at=now, ended_at=now),
+            ],
+            warnings=["Test-Warnung"],
+            errors=[],
+            langfuse={"configured": False, "note": "inaktiv"},
+            links={"Output": "/output/browse/test"},
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            prep = Path(tmp) / "prep_laufbericht.pdf"
+            final = Path(tmp) / "laufbericht.pdf"
+            write_run_report_pdf(prep, telemetry, variant="prep")
+            write_run_report_pdf(final, telemetry, variant="final")
+            self.assertTrue(prep.is_file())
+            self.assertTrue(final.is_file())
+            self.assertGreater(prep.stat().st_size, 500)
+            self.assertIn(b"Prep-Laufbericht", prep.read_bytes())
+            self.assertIn(b"Laufbericht", final.read_bytes())
+
     def test_write_pdf(self) -> None:
         from datetime import datetime, timezone
 
@@ -78,8 +105,11 @@ class RunTelemetryCollectorTests(unittest.TestCase):
             with collector.track("step_a"):
                 pass
             collector.set_output(out)
-            result = collector.write_pdf()
-            self.assertTrue(result["ok"])
+            prep = collector.write_pdf(variant="prep")
+            final = collector.write_pdf(variant="final")
+            self.assertTrue(prep["ok"])
+            self.assertTrue(final["ok"])
+            self.assertTrue((out / "Reports" / "prep_laufbericht.pdf").is_file())
             self.assertTrue((out / "Reports" / "laufbericht.pdf").is_file())
 
 

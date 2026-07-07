@@ -103,6 +103,12 @@ class RunTelemetryCollector:
     def set_langfuse_status(self, status: dict[str, Any]) -> None:
         self.data.langfuse = dict(status)
 
+    def set_run_settings(self, settings: list[tuple[str, str]] | None) -> None:
+        """UI-Einstellungen des Laufs (Label, Wert) fuer den Laufbericht."""
+        if not settings:
+            return
+        self.data.extra["ui_settings"] = [{"label": k, "value": v} for k, v in settings]
+
     def merge_ai_report(self, report: dict[str, Any] | None) -> None:
         """Links/Fehler aus einem fertigen Ziel-Bericht (ohne Token — siehe merge_ai_session_result)."""
         if not report:
@@ -200,16 +206,24 @@ class RunTelemetryCollector:
             )
             _log.info("run.%s %.1f ms %s", component, ms, details or "")
 
-    def write_pdf(self, *, subdir: str = "Reports", basename: str = "laufbericht.pdf") -> dict[str, Any]:
+    def write_pdf(self, *, subdir: str = "Reports", variant: str = "final") -> dict[str, Any]:
         if not self.data.output_dir:
             return {"ok": False, "message": "Kein output_dir fuer Laufbericht."}
+        if variant == "prep":
+            basename = PREP_RUN_REPORT_BASENAME
+            link_label = "Prep-Laufbericht (PDF)"
+            message_label = "Prep-Laufbericht"
+        else:
+            basename = FINAL_RUN_REPORT_BASENAME
+            link_label = "Laufbericht (PDF)"
+            message_label = "Laufbericht"
         out_dir = Path(self.data.output_dir) / subdir
         out_path = out_dir / basename
         try:
             from tslab.services.run_report_pdf import write_run_report_pdf
 
             with self.track("run_report_pdf"):
-                write_run_report_pdf(out_path, self.data)
+                write_run_report_pdf(out_path, self.data, variant=variant)
         except Exception as exc:
             self.error(f"PDF-Laufbericht: {exc}")
             return {"ok": False, "message": str(exc)}
@@ -217,17 +231,20 @@ class RunTelemetryCollector:
         rel = relative_output_path(out_path)
         url = f"/output/file/{rel}" if rel else None
         if url:
-            self.data.links["Laufbericht (PDF)"] = url
+            self.data.links[link_label] = url
         return {
             "ok": True,
             "path": str(out_path),
             "rel": rel,
             "url": url,
-            "message": f"Laufbericht: {subdir}/{basename}",
+            "variant": variant,
+            "message": f"{message_label}: {subdir}/{basename}",
         }
 
 
 PENDING_BASENAME = ".pending_run.json"
+PREP_RUN_REPORT_BASENAME = "prep_laufbericht.pdf"
+FINAL_RUN_REPORT_BASENAME = "laufbericht.pdf"
 
 
 def _component_to_dict(c: ComponentTiming) -> dict[str, Any]:
@@ -261,6 +278,7 @@ def save_pending_collector(collector: RunTelemetryCollector, output_dir: str | P
         "warnings": list(d.warnings),
         "errors": list(d.errors),
         "tokens": asdict(d.tokens),
+        "extra": dict(d.extra),
     }
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return path
@@ -284,6 +302,7 @@ def load_pending_collector(output_dir: str | Path) -> RunTelemetryCollector | No
     collector.data.tokens.total_tokens = int(tok.get("total_tokens") or 0)
     collector.data.tokens.calls = int(tok.get("calls") or 0)
     collector.data.tokens.models = list(tok.get("models") or [])
+    collector.data.extra = dict(payload.get("extra") or {})
     return collector
 
 

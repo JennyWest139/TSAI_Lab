@@ -4,9 +4,14 @@ from __future__ import annotations
 
 import unittest
 from datetime import date
+from pathlib import Path
 
 from tslab.services.order_selection import parse_order_list
-from tslab.services.output_naming import correlation_folder_name, tsa_folder_name
+from tslab.services.output_naming import (
+    allocate_unique_output_folder,
+    correlation_folder_name,
+    tsa_folder_name,
+)
 from tslab.services.report_naming import (
     ai_model_filename_suffix,
     corr_report_basename,
@@ -35,6 +40,24 @@ class OutputNamingTests(unittest.TestCase):
             train_end=date(2006, 7, 1),
         )
         self.assertEqual(name, "TSA_ex_pdax_1987-12-01_to_2006-07-01")
+
+    def test_allocate_unique_output_folder(self) -> None:
+        parent = Path(self._get_temp_dir())
+        base = "TSA_ex_xrp_close_2013-08-05_to_2026-06-14"
+        self.assertEqual(allocate_unique_output_folder(parent, base), base)
+        (parent / base).mkdir()
+        self.assertEqual(allocate_unique_output_folder(parent, base), f"{base}_1")
+        (parent / f"{base}_1").mkdir()
+        self.assertEqual(allocate_unique_output_folder(parent, base), f"{base}_2")
+        (parent / base).rmdir()
+        (parent / f"{base}_1").rmdir()
+        (parent / f"{base}_3").mkdir()
+        self.assertEqual(allocate_unique_output_folder(parent, base), f"{base}_4")
+
+    def _get_temp_dir(self) -> str:
+        import tempfile
+
+        return tempfile.mkdtemp()
 
     def test_tsa_model_report_names(self) -> None:
         self.assertEqual(tsa_model_folder_tag("arma11_garch11"), "ARMA11GARCH11")

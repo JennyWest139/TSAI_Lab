@@ -532,6 +532,17 @@ def create_app(*, use_mock: bool = False) -> Flask:
         except ValueError as exc:
             return jsonify({"ok": False, "message": str(exc)}), 400
 
+    @app.post("/api/report/abort")
+    def api_report_abort():
+        body = request.get_json(silent=True) or {}
+        output_dir = str(body.get("output_dir", "")).strip()
+        if not output_dir:
+            return jsonify({"ok": False, "message": "output_dir fehlt."}), 400
+        try:
+            return jsonify(backend.abort_output_report(output_dir))
+        except ValueError as exc:
+            return jsonify({"ok": False, "message": str(exc)}), 400
+
     @app.post("/api/run/finalize")
     def api_run_finalize():
         body = request.get_json(silent=True) or {}

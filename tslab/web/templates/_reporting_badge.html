@@ -1,4 +1,4 @@
-{# Reporting-Status-Badge (complete | in_progress | incomplete) #}
+{# Reporting-Status-Badge (complete | in_progress | incomplete | failed) #}
 {% macro reporting_badge(status, job_status='fertig') %}
   {% if status.code == 'complete' %}
     <span class="badge badge-ok">{{ job_status }}</span>

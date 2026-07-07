@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_reporting_badge.html" import reporting_badge %}
+{% from "_ki_abort_button.html" import ki_abort_button %}
 {% block title %}Korrelations-Historie{% endblock %}
 {% block page_title %}Korrelations-Historie{% endblock %}
 {% block page_subtitle %}Bereits durchgeführte Kreuzkorrelationen{% endblock %}
@@ -49,11 +50,15 @@
           <td>{{ r.series_a }}</td>
           <td>{{ r.series_b }}</td>
           <td class="mono">{{ r.start_date }} → {{ r.end_date }}</td>
-          <td>{{ reporting_badge(r.display_status, r.status) }}</td>
+          <td>
+            {{ reporting_badge(r.display_status, r.status) }}
+            {% if r.output_dir %}{{ ki_abort_button(r.display_status, r.output_dir) }}{% endif %}
+          </td>
           <td>{% if r.best_r is not none %}{{ '%.3f'|format(r.best_r|abs) }}{% if r.best_lag is not none %} <span class="muted">L{{ r.best_lag }}</span>{% endif %}{% else %}—{% endif %}</td>
           <td>
             {% if r.browse_url %}<a href="{{ r.browse_url }}" class="stat-link">Ordner</a>{% endif %}
             {% if r.zip_url %} · <a href="{{ r.zip_url }}" class="stat-link">ZIP</a>{% endif %}
+            {% if r.prep_run_report_url %} · <a href="{{ r.prep_run_report_url }}" class="stat-link">Prep</a>{% endif %}
             {% if r.run_report_url %} · <a href="{{ r.run_report_url }}" class="stat-link">Laufbericht</a>{% endif %}
           </td>
           <td>
@@ -75,5 +80,6 @@
 <script>
   TSLab.initCore();
   TSLab.initListToolbar({ tagFilterId: "tagFilter", searchInputId: "listSearch", tableId: "corrHistoryTable" });
+  TSLab.initKiAbort();
 </script>
 {% endblock %}

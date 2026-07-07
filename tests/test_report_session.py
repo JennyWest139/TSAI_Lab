@@ -10,8 +10,10 @@ from tslab.services.report_session import (
     CHECKPOINT_CALLS,
     _build_tsa_comparison_target,
     discover_report_targets,
+    filter_model_dirs_for_comparison,
     list_tsa_model_dirs,
     prepare_report_session,
+    summary_text_for_model_comparison,
 )
 
 
@@ -55,6 +57,53 @@ class ReportSessionDiscoveryTests(unittest.TestCase):
                 cmp_target.output_basename, "Modellvergleich_GPT-4o-mini.docx"
             )
             self.assertEqual(len(cmp_target.tasks), 2)
+            self.assertEqual(cmp_target.report_layout, "tsa_comparison")
+            self.assertEqual(cmp_target.text_sections, [])
+            bundle = cmp_target.tasks[0].payload.get("parts") or []
+            self.assertTrue(all("Prognose PDAX-Niveau" not in p for p in bundle))
+
+    def test_summary_strips_forecast_level_table(self) -> None:
+        raw = (
+            "Modell: ARMA(1,1)\nAIC: -100\n\n"
+            "Prognose PDAX-Niveau (Ruecktransformation aus log-Renditen)\n"
+            "Datum          Mittelwert    q0.5%\n"
+            "2026-01-01        9.70      8.31\n"
+        )
+        trimmed = summary_text_for_model_comparison(raw)
+        self.assertIn("AIC", trimmed)
+        self.assertNotIn("Prognose PDAX", trimmed)
+        self.assertNotIn("9.70", trimmed)
+
+    def test_filter_model_dirs_by_ui_selection(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for name in ("arma11", "garch11", "decomp_additive"):
+                d = root / name
+                d.mkdir()
+                (d / "summary.txt").write_text("s", encoding="utf-8")
+            reports = root / "Reports"
+            reports.mkdir()
+            pending = {
+                "run_type": "TSA",
+                "started_at": "2026-01-01T00:00:00+00:00",
+                "components": [],
+                "warnings": [],
+                "errors": [],
+                "tokens": {},
+                "extra": {
+                    "ui_settings": [
+                        {"label": "Modelle", "value": "arma, garch"},
+                    ]
+                },
+            }
+            import json
+
+            (reports / ".pending_run.json").write_text(
+                json.dumps(pending), encoding="utf-8"
+            )
+            all_dirs = list_tsa_model_dirs(root)
+            filtered = filter_model_dirs_for_comparison(root, all_dirs)
+            self.assertEqual([d.name for d in filtered], ["arma11", "garch11"])
 
     def test_prepare_session_disabled(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

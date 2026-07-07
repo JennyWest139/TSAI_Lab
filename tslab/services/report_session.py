@@ -26,6 +26,7 @@ from tslab.services.report_naming import (
     image_report_section,
     is_generated_report_artifact,
     modellvergleich_basename,
+    purge_ai_reports_for_other_models,
     tsa_model_report_basename,
 )
 
@@ -315,6 +316,21 @@ def session_path_for(output_root: Path) -> Path:
     return reports / SESSION_BASENAME
 
 
+def session_has_pending_work(state: ReportSessionState | None) -> bool:
+    if state is None or state.finish_early:
+        return False
+    return any(not target.done for target in state.targets)
+
+
+def _effective_max_tokens(config: Any, spec: Any, *, base: int | None = None) -> int:
+    max_tok = int(base if base is not None else config.max_tokens)
+    if str(getattr(spec, "provider", "")).lower() == "gemini":
+        from tslab.services.ai_providers import _gemini_output_token_budget
+
+        return _gemini_output_token_budget(max_tok, model=str(spec.model_name))
+    return max_tok
+
+
 def load_session(output_root: Path) -> ReportSessionState | None:
     path = session_path_for(output_root)
     if not path.is_file():
@@ -345,6 +361,79 @@ def list_tsa_model_dirs(run_path: Path) -> list[Path]:
     return dirs
 
 
+def _folder_to_run_model_key(folder_name: str) -> str:
+    """Ordnername -> Schluessel wie in der UI-Modellauswahl (arma, garch, …)."""
+    name = folder_name.lower()
+    if name.startswith("decomp_additive"):
+        return "decomp-additive"
+    if name.startswith("decomp_multiplicative"):
+        return "decomp-multiplicative"
+    if "arma" in name and "garch" in name:
+        return "arma-garch"
+    if name.startswith("arma"):
+        return "arma"
+    if name.startswith("garch"):
+        return "garch"
+    return name.replace("_", "-")
+
+
+def _selected_model_keys_from_run(run_path: Path) -> set[str] | None:
+    from tslab.services.run_telemetry import load_pending_collector
+
+    collector = load_pending_collector(run_path)
+    if collector is None:
+        return None
+    for row in collector.data.extra.get("ui_settings") or []:
+        if str(row.get("label") or "") != "Modelle":
+            continue
+        raw = str(row.get("value") or "").strip()
+        if not raw or raw == "—":
+            return None
+        keys = {
+            part.strip().lower().replace("_", "-")
+            for part in raw.split(",")
+            if part.strip()
+        }
+        return keys or None
+    return None
+
+
+def filter_model_dirs_for_comparison(
+    run_path: Path, model_dirs: list[Path]
+) -> list[Path]:
+    """Nur im Lauf gewaehlte TSA-Modelle (falls in ui_settings erfasst)."""
+    selected = _selected_model_keys_from_run(run_path)
+    if not selected:
+        return model_dirs
+    filtered = [
+        d for d in model_dirs if _folder_to_run_model_key(d.name) in selected
+    ]
+    return filtered or model_dirs
+
+
+_FORECAST_LEVEL_MARKERS = (
+    "Prognose PDAX-Niveau",
+    "Prognose Niveau",
+    "Datum          Mittelwert",
+)
+
+
+def summary_text_for_model_comparison(content: str) -> str:
+    """Fit/Diagnostik fuer Modellvergleich — ohne Niveau-Prognosetabellen."""
+    lines = content.splitlines()
+    out: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if any(marker in line for marker in _FORECAST_LEVEL_MARKERS):
+            break
+        if stripped.startswith("Datum ") and "Mittelwert" in stripped:
+            break
+        out.append(line)
+    while out and not out[-1].strip():
+        out.pop()
+    return "\n".join(out).strip()
+
+
 def discover_report_targets(
     run_path: Path,
     *,
@@ -368,40 +457,46 @@ def _build_tsa_comparison_target(
     """KI-Modellvergleich fuer Reports/ (nach allen Einzelmodell-Berichten)."""
     from tslab.services.report_service import _read_text_file
 
+    model_dirs = filter_model_dirs_for_comparison(run_path, model_dirs)
     if len(model_dirs) < 2:
         return None
 
+    model_labels = ", ".join(d.name for d in model_dirs)
     text_bundle_parts: list[str] = []
-    text_sections: list[tuple[str, str]] = []
     for model_dir in model_dirs:
         summary_path = model_dir / "summary.txt"
         if not summary_path.is_file():
             continue
-        content = _read_text_file(summary_path)
+        content = summary_text_for_model_comparison(_read_text_file(summary_path))
+        if not content:
+            continue
         text_bundle_parts.append(f"### Modell {model_dir.name}\n{content}")
-        text_sections.append((f"{model_dir.name}/summary.txt", content))
 
     if len(text_bundle_parts) < 2:
         return None
 
     compare_text = (
-        "Du erstellst den fachlichen Modellvergleich fuer einen TSA-Lauf mit mehreren Modellen. "
-        "Vergleiche alle gelieferten summary.txt Inhalte. "
-        "Rangiere die Modelle (1. beste, 2. zweitbeste, …). "
-        "Pro Modell: Eignung **Ja**, **Nein** oder **Beschraenkt**, Qualitaetsskala 1–5, "
-        "Konfidenz (niedrig/mittel/hoch) und kurze Begruendung. "
-        "Nenne nur belegte Kennzahlen."
+        "Du erstellst den fachlichen Modellvergleich fuer einen TSA-Lauf. "
+        f"Verglichen werden ausschliesslich diese im Lauf gewaehlten Modelle: {model_labels}. "
+        "Nutze Fit-Kennzahlen (AIC, BIC, Log-Likelihood), Koeffizienten und Residuen-Diagnostik "
+        "(Ljung-Box, Jarque-Bera, ARCH-LM). "
+        "KEINE Prognose-Mittelwerte, Quantil-Tabellen oder Niveau-Zeitreihen — "
+        "diese gehoeren nur in die jeweiligen Modellordner. "
+        "Erstelle eine Rangliste vom am besten geeigneten (1.) zum am wenigsten geeigneten Modell. "
+        "Pro Modell: Rang, Eignung (Ja/Nein/Beschraenkt), Qualitaet 1–5, Guete/Konfidenz "
+        "(niedrig/mittel/hoch), kurze fachliche Begruendung nur mit belegten Kennzahlen."
     )
     compare_summary = (
-        "Erstelle eine Executive Summary des Modellvergleichs (max. eine Seite). "
-        "Pflicht: klare Rangfolge (1., 2., 3., …), Gesamtempfehlung welches Modell "
-        "fuer Prognose/Risiko bevorzugt werden sollte, groesste Unsicherheiten."
+        "Executive Summary des Modellvergleichs (max. eine Seite). "
+        "Pflicht: klare Rangfolge 1., 2., 3., … (bestes zuerst), "
+        "Gesamtempfehlung fuer Prognose und Risiko, groesste Unsicherheiten. "
+        "Keine Auflistung von Prognose-Mittelwerten."
     )
 
     tasks = [
         ReportTask(
             kind="text_bundle",
-            label="Modellvergleich",
+            label="Modellranking",
             payload={"parts": text_bundle_parts, "prompt": compare_text},
         ),
         ReportTask(
@@ -415,9 +510,10 @@ def _build_tsa_comparison_target(
         rel_path="Reports",
         title="TSA Modellvergleich",
         tasks=tasks,
-        text_sections=[[h, b] for h, b in text_sections],
-        text_count=len(text_sections),
+        text_sections=[],
+        text_count=len(text_bundle_parts),
         output_basename=modellvergleich_basename(ai_suffix),
+        report_layout="tsa_comparison",
     )
 
 
@@ -570,7 +666,7 @@ def prepare_report_session(
     run_type: str = "Analyse",
     analysis_mode: str = "extended",
 ) -> dict[str, Any]:
-    from tslab.services.report_service import _model_spec_for_id, load_report_config
+    from tslab.services.report_service import _model_spec_for_id, load_report_config, resolve_run_report_model_id
 
     config = load_report_config()
     if not config.enabled:
@@ -586,8 +682,49 @@ def prepare_report_session(
     if not run_path.is_dir():
         return {"ok": False, "status": "error", "message": f"Ordner nicht gefunden: {output_dir}"}
 
+    try:
+        from tslab.services.report_runner import ai_report_in_progress, is_current_background_worker
+
+        if ai_report_in_progress(run_path) and not is_current_background_worker(run_path):
+            requested = str(model_id or "").strip() or (
+                resolve_run_report_model_id(run_path, None, config=config) or ""
+            )
+            from tslab.services.report_runner import background_model_matches
+
+            if background_model_matches(run_path, requested):
+                return {
+                    "ok": True,
+                    "status": "in_progress",
+                    "message": "KI-Berichte werden bereits erstellt.",
+                    "output_dir": str(run_path),
+                }
+            active_session = load_session(run_path)
+            active_model = active_session.model_id if active_session else (
+                resolve_run_report_model_id(run_path, None, config=config) or ""
+            )
+            if requested and active_model and active_model != requested:
+                return {
+                    "ok": False,
+                    "status": "busy",
+                    "message": (
+                        "KI-Berichte fuer ein anderes Modell laufen bereits. "
+                        "Bitte warten oder den Lauf neu starten."
+                    ),
+                }
+            return {
+                "ok": True,
+                "status": "in_progress",
+                "message": "KI-Berichte werden bereits erstellt.",
+                "output_dir": str(run_path),
+            }
+    except ImportError:
+        pass
+
     init_langfuse(config)
-    spec = _model_spec_for_id(config, model_id)
+    try:
+        spec = _model_spec_for_id(config, model_id, output_dir=run_path)
+    except ValueError as exc:
+        return {"ok": False, "status": "error", "message": str(exc)}
     if not spec.enabled:
         return {"ok": False, "status": "error", "message": f"Modell {spec.id} ist deaktiviert."}
 
@@ -598,7 +735,40 @@ def prepare_report_session(
     if spec.provider == "gemini" and not (_env("GEMINI_API_KEY") or config.gemini_api_key):
         return {"ok": False, "status": "error", "message": "Gemini API-Key fehlt."}
 
+    existing = load_session(run_path)
+    if (
+        existing
+        and existing.model_id == spec.id
+        and existing.run_type == run_type
+        and existing.analysis_mode == analysis_mode
+        and session_has_pending_work(existing)
+    ):
+        total_tasks = sum(len(t.tasks) for t in existing.targets)
+        done_targets = sum(1 for t in existing.targets if t.done)
+        return {
+            "ok": True,
+            "status": "ready",
+            "message": (
+                f"Berichtssession wird fortgesetzt "
+                f"({done_targets}/{len(existing.targets)} Ziele, {total_tasks} KI-Schritte)."
+            ),
+            "output_dir": str(run_path),
+            "target_count": len(existing.targets),
+            "total_tasks": total_tasks,
+            "targets": [{"rel_path": t.rel_path, "title": t.title} for t in existing.targets],
+            "checkpoint_calls": CHECKPOINT_CALLS,
+            "resumed": True,
+        }
+
+    if existing and (
+        existing.model_id != spec.id
+        or existing.run_type != run_type
+        or existing.analysis_mode != analysis_mode
+    ):
+        delete_session(run_path)
+
     ai_suffix = ai_model_filename_suffix(model_label=spec.label, model_id=spec.id)
+    purge_ai_reports_for_other_models(run_path, keep_suffix=ai_suffix)
     is_tsa = run_type.upper() == "TSA"
 
     targets_data: list[ReportTargetState] = []
@@ -737,6 +907,9 @@ def _finalize_target_documents(
         ]
         if extra_notes:
             appendix_sections = extra_notes + appendix_sections
+    elif target.report_layout == "tsa_comparison":
+        analysis_sections = [(h, b) for h, b in target.ai_text_notes]
+        appendix_sections = []
     else:
         analysis_sections = [(h, b) for h, b in target.ai_text_notes]
         if not summary:
@@ -865,8 +1038,8 @@ def step_report_session(
 
     def run_one_task(target: ReportTargetState, task: ReportTask) -> None:
         nonlocal state
-        max_tok = config.max_tokens
-        image_tok = min(600, max_tok)
+        max_tok = _effective_max_tokens(config, spec)
+        image_tok = _effective_max_tokens(config, spec, base=min(600, int(config.max_tokens)))
         system = _SYSTEM_DE
 
         if task.kind == "text_bundle":

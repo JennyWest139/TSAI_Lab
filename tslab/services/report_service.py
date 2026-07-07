@@ -112,9 +112,25 @@ def load_report_config() -> ReportConfig:
             "enabled": True,
         },
         {
+            "id": "gemini:gemini-3.1-flash-lite",
+            "provider": "gemini",
+            "label": "Gemini 3.1 Flash Lite",
+            "model": "gemini-3.1-flash-lite",
+            "vision": True,
+            "enabled": True,
+        },
+        {
+            "id": "gemini:gemini-2.5-flash-lite",
+            "provider": "gemini",
+            "label": "Gemini 2.5 Flash Lite",
+            "model": "gemini-2.5-flash-lite",
+            "vision": True,
+            "enabled": True,
+        },
+        {
             "id": "gemini:gemini-2.5-flash",
             "provider": "gemini",
-            "label": "Gemini",
+            "label": "Gemini 2.5 Flash",
             "model": "gemini-2.5-flash",
             "vision": True,
             "enabled": True,
@@ -149,6 +165,17 @@ def load_report_config() -> ReportConfig:
     )
 
 
+def _model_unavailable_hint(*, provider: str, cfg: ReportConfig) -> str:
+    if provider == "openai":
+        return "API-Key fehlt"
+    if provider == "gemini":
+        if not (_env("GEMINI_API_KEY") or cfg.gemini_api_key):
+            return "API-Key fehlt"
+        if not gemini_sdk_available():
+            return "Paket google-genai fehlt (pip install)"
+    return "nicht verfügbar"
+
+
 def list_report_models(*, include_disabled: bool = False) -> list[dict[str, Any]]:
     cfg = load_report_config()
     has_openai = bool(_env("OPENAI_API_KEY") or cfg.openai_api_key)
@@ -168,6 +195,9 @@ def list_report_models(*, include_disabled: bool = False) -> list[dict[str, Any]
                     "provider": m.provider,
                     "vision": m.vision,
                     "available": False,
+                    "unavailable_hint": _model_unavailable_hint(
+                        provider=m.provider, cfg=cfg
+                    ),
                 }
             )
             continue
@@ -247,8 +277,45 @@ def _accumulate_usage(total: LLMUsage, part: LLMUsage) -> None:
     total.total_tokens += part.total_tokens
 
 
-def _model_spec_for_id(config: ReportConfig, model_id: str | None) -> ModelSpec:
-    mid = (model_id or config.default_model).strip()
+def resolve_run_report_model_id(
+    output_dir: str | Path | None,
+    model_id: str | None,
+    *,
+    config: ReportConfig | None = None,
+) -> str | None:
+    """Modell fuer einen Lauf: explizite UI-Wahl oder in .pending_run.json gespeichertes Modell."""
+    mid = str(model_id or "").strip()
+    if mid and mid not in ("none", "off", "0"):
+        return mid
+    if not output_dir:
+        return None
+    try:
+        from tslab.services.run_telemetry import load_pending_collector
+
+        collector = load_pending_collector(output_dir)
+        if collector is not None:
+            stored = str(collector.data.extra.get("report_model_id") or "").strip()
+            if stored:
+                return stored
+    except Exception:
+        pass
+    return None
+
+
+def _model_spec_for_id(
+    config: ReportConfig,
+    model_id: str | None,
+    *,
+    output_dir: str | Path | None = None,
+) -> ModelSpec:
+    if output_dir is not None:
+        mid = resolve_run_report_model_id(output_dir, model_id, config=config) or ""
+    else:
+        mid = (model_id or config.default_model).strip()
+    if not mid:
+        if output_dir is not None:
+            raise ValueError("Kein KI-Modell fuer diesen Lauf angegeben.")
+        mid = config.default_model
     for m in config.models:
         if m.id == mid:
             return m

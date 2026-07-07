@@ -1,0 +1,12 @@
+{# Button erscheint erst nach STALE_KI_SESSION_MINUTES ohne Fortschritt #}
+{% macro ki_abort_button(status, output_dir) %}
+  {% if status and status.abort_available and output_dir %}
+  <button
+    type="button"
+    class="btn btn-warn btn-sm"
+    data-ki-abort
+    data-output-dir="{{ output_dir }}"
+    title="KI-Berichte beenden und finalen Laufbericht mit Fehlerhinweis schreiben"
+  >Jetzt beenden</button>
+  {% endif %}
+{% endmacro %}

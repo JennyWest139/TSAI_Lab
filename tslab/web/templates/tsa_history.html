@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_reporting_badge.html" import reporting_badge %}
+{% from "_ki_abort_button.html" import ki_abort_button %}
 {% block title %}TSA-Historie{% endblock %}
 {% block page_title %}TSA-Historie{% endblock %}
 {% block page_subtitle %}Durchgeführte Time-Series-Analysen{% endblock %}
@@ -46,10 +47,14 @@
               title="Tags bearbeiten">{{ r.tags|join(', ') or '—' }}</td>
           <td>{% for m in r.models %}<span class="badge badge-sm">{{ m }}</span> {% endfor %}</td>
           <td class="mono">{{ r.train_start }} → {{ r.train_end }}</td>
-          <td>{{ reporting_badge(r.display_status, r.status) }}</td>
+          <td>
+            {{ reporting_badge(r.display_status, r.status) }}
+            {% if r.output_dir %}{{ ki_abort_button(r.display_status, r.output_dir) }}{% endif %}
+          </td>
           <td>
             {% if r.browse_url %}<a href="{{ r.browse_url }}" class="stat-link">Ordner</a>{% endif %}
             {% if r.zip_url %} · <a href="{{ r.zip_url }}" class="stat-link">ZIP</a>{% endif %}
+            {% if r.prep_run_report_url %} · <a href="{{ r.prep_run_report_url }}" class="stat-link">Prep</a>{% endif %}
             {% if r.run_report_url %} · <a href="{{ r.run_report_url }}" class="stat-link">Laufbericht</a>{% endif %}
             {% if r.modellvergleich_url %} · <a href="{{ r.modellvergleich_url }}" class="stat-link">Modellvergleich</a>{% endif %}
           </td>
@@ -72,5 +77,6 @@
 <script>
   TSLab.initCore();
   TSLab.initListToolbar({ tagFilterId: "tagFilter", searchInputId: "listSearch", tableId: "tsaHistoryTable" });
+  TSLab.initKiAbort();
 </script>
 {% endblock %}

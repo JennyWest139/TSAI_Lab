@@ -1,4 +1,4 @@
-"""Kompakter PDF-Laufbericht je Analyse-Lauf (Reports/laufbericht.pdf)."""
+"""Kompakter PDF-Laufbericht je Analyse-Lauf (prep + final in Reports/)."""
 
 from __future__ import annotations
 
@@ -14,7 +14,9 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, Tabl
 from tslab.services.run_telemetry import RunTelemetry
 
 
-def write_run_report_pdf(path: Path, telemetry: RunTelemetry) -> Path:
+def write_run_report_pdf(
+    path: Path, telemetry: RunTelemetry, *, variant: str = "final"
+) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     styles = getSampleStyleSheet()
     body = ParagraphStyle(
@@ -38,6 +40,12 @@ def write_run_report_pdf(path: Path, telemetry: RunTelemetry) -> Path:
         leading=10,
     )
 
+    is_prep = variant == "prep"
+    title = (
+        f"TSLab Prep-Laufbericht — {telemetry.run_type}"
+        if is_prep
+        else f"TSLab Laufbericht — {telemetry.run_type}"
+    )
     doc = SimpleDocTemplate(
         str(path),
         pagesize=A4,
@@ -45,13 +53,45 @@ def write_run_report_pdf(path: Path, telemetry: RunTelemetry) -> Path:
         rightMargin=2 * cm,
         topMargin=1.8 * cm,
         bottomMargin=1.8 * cm,
-        title=f"TSLab Laufbericht — {telemetry.run_type}",
+        title=title,
     )
     story: list = []
 
-    story.append(Paragraph(f"TSLab Laufbericht — {telemetry.run_type}", h1))
+    story.append(Paragraph(title, h1))
     started = telemetry.started_at.astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
     story.append(Paragraph(f"Erstellt: {datetime.now().strftime('%Y-%m-%d %H:%M')} · Laufstart: {started}", body))
+    if is_prep:
+        story.append(
+            Paragraph(
+                "<i>Vorläufig — KI-Berichte, Token-Verbrauch und finale Links können noch ausstehen.</i>",
+                body,
+            )
+        )
+    else:
+        ki_status = (telemetry.extra or {}).get("ki_report_status")
+        if ki_status == "failed":
+            if telemetry.extra.get("ki_user_aborted"):
+                story.append(
+                    Paragraph(
+                        "<b>KI-Berichte vom Nutzer manuell beendet.</b> "
+                        "Details im Abschnitt „Fehler“ weiter unten.",
+                        body,
+                    )
+                )
+            else:
+                story.append(
+                    Paragraph(
+                        "<b>KI-Berichte fehlgeschlagen.</b> Details im Abschnitt „Fehler“ weiter unten.",
+                        body,
+                    )
+                )
+        elif ki_status == "partial":
+            story.append(
+                Paragraph(
+                    "<i>KI-Berichte nur teilweise erstellt — siehe Warnungen und Fehler.</i>",
+                    body,
+                )
+            )
     if telemetry.output_dir:
         story.append(Paragraph(f"<b>Output:</b> {telemetry.output_dir}", mono))
     story.append(Spacer(1, 0.3 * cm))
@@ -213,6 +253,32 @@ def write_run_report_pdf(path: Path, telemetry: RunTelemetry) -> Path:
             story.append(Paragraph(f"<b>{label}:</b> {target}", mono))
     else:
         story.append(Paragraph("Keine Links erfasst.", body))
+    story.append(Spacer(1, 0.4 * cm))
+
+    # UI-Einstellungen (am Ende)
+    story.append(Paragraph("UI-Einstellungen des Laufs", h1))
+    ui_settings = (telemetry.extra or {}).get("ui_settings") or []
+    if ui_settings:
+        rows = [["Einstellung", "Wert"]]
+        for row in ui_settings:
+            label = str(row.get("label") or "—")
+            value = str(row.get("value") or "—")
+            rows.append([Paragraph(label, body), Paragraph(value.replace("\n", "<br/>"), body)])
+        table = Table(rows, colWidths=[5.5 * cm, 11.5 * cm])
+        table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#eef4fc")),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("FONTSIZE", (0, 0), (-1, -1), 8),
+                    ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ]
+            )
+        )
+        story.append(table)
+    else:
+        story.append(Paragraph("Keine UI-Einstellungen erfasst.", body))
 
     doc.build(story)
     return path

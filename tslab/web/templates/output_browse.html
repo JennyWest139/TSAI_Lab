@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_reporting_badge.html" import reporting_badge %}
+{% from "_ki_abort_button.html" import ki_abort_button %}
 {% block title %}Output{% endblock %}
 {% block page_title %}Ergebnis-Ordner{% endblock %}
 {% block page_subtitle %}<span class="mono">{{ listing.path or 'output/' }}</span>{% endblock %}
@@ -15,17 +16,24 @@
 </p>
 
 {% if listing.reporting_status and listing.reporting_status.code != 'complete' %}
-<section class="card reporting-status-banner">
+<section class="card reporting-status-banner{% if listing.reporting_status.code == 'failed' %} reporting-status-failed{% endif %}">
   <p style="margin:0;">
     Lauf-Status:
     {{ reporting_badge(listing.reporting_status) }}
     {% if listing.reporting_status.detail %}
     <span class="hint"> — {{ listing.reporting_status.detail }}</span>
     {% endif %}
+    {% if listing.reporting_status.abort_available and listing.path %}
+    <span style="margin-left:0.5rem;">{{ ki_abort_button(listing.reporting_status, listing.path) }}</span>
+    {% endif %}
     {% if listing.reporting_status.code == 'in_progress' %}
     <span class="hint"> · Seite in einigen Minuten neu laden</span>
+    {% elif listing.reporting_status.code == 'stalled' %}
+    <span class="hint"> · KI-Lauf hängt — mit „Jetzt beenden“ abschließen</span>
     {% elif listing.reporting_status.code == 'incomplete' %}
     <span class="hint"> · TSA/CORR mit KI erneut starten oder Ordner <code>Reports/.pending_run.json</code> manuell prüfen</span>
+    {% elif listing.reporting_status.code == 'failed' %}
+    <span class="hint"> · Finaler <code>laufbericht.pdf</code> enthält die Fehlermeldung</span>
     {% endif %}
   </p>
 </section>
@@ -51,12 +59,17 @@
             <span class="badge badge-incomplete badge-sm" title="Finalisierung nicht abgeschlossen">hängend</span>
             {% elif e.name == '.report_session.json' %}
             <span class="badge badge-warn badge-sm" title="KI-Berichtssession aktiv">KI aktiv</span>
+            {% elif e.name == '.ki_run_failed.json' %}
+            <span class="badge badge-failed badge-sm" title="KI-Bericht fehlgeschlagen">KI fehlgeschlagen</span>
             {% endif %}
           </td>
           <td class="muted">{% if e.is_dir %}Ordner{% else %}{{ e.ext }}{% endif %}</td>
           <td>
             {% if e.reporting_status %}
             {{ reporting_badge(e.reporting_status) }}
+            {% if e.reporting_status.abort_available %}
+            {{ ki_abort_button(e.reporting_status, e.path) }}
+            {% endif %}
             {% else %}—{% endif %}
           </td>
           <td>{% if not e.is_dir and e.ext in ['.png', '.jpg', '.txt', '.csv', '.xlsx', '.pdf', '.docx'] %}<a href="{{ url_for('output_file', subpath=e.path) }}" class="stat-link" target="_blank">öffnen</a>{% endif %}</td>
@@ -66,4 +79,11 @@
     </table>
   </div>
 </section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  TSLab.initCore();
+  TSLab.initKiAbort();
+</script>
 {% endblock %}

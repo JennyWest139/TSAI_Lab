@@ -64,8 +64,16 @@ from tslab.services.report_service import (
     generate_run_report,
     list_report_models,
     load_report_config,
+    resolve_run_report_model_id,
 )
-from tslab.services.report_runner import start_background_ai_reports
+from tslab.services.report_runner import (
+    abort_ki_run_by_user,
+    ai_report_in_progress,
+    background_model_matches,
+    join_background_ai_reports,
+    start_background_ai_reports,
+)
+from tslab.services.run_settings import build_correlation_run_settings, build_tsa_run_settings
 from tslab.services.reporting_status import ReportingStatusInfo, inspect_reporting_status
 from tslab.services.report_session import (
     prepare_report_session,
@@ -107,6 +115,16 @@ def _run_report_url(output_dir: str | None) -> str | None:
     if not output_dir:
         return None
     path = Path(output_dir) / "Reports" / "laufbericht.pdf"
+    if not path.is_file():
+        return None
+    rel = relative_output_path(path)
+    return f"/output/file/{rel}" if rel else None
+
+
+def _prep_run_report_url(output_dir: str | None) -> str | None:
+    if not output_dir:
+        return None
+    path = Path(output_dir) / "Reports" / "prep_laufbericht.pdf"
     if not path.is_file():
         return None
     rel = relative_output_path(path)
@@ -179,6 +197,10 @@ class CorrelationRunView:
     def run_report_url(self) -> str | None:
         return _run_report_url(self.output_dir)
 
+    @property
+    def prep_run_report_url(self) -> str | None:
+        return _prep_run_report_url(self.output_dir)
+
 
 @dataclass(frozen=True)
 class TsaRunView:
@@ -222,6 +244,10 @@ class TsaRunView:
     @property
     def run_report_url(self) -> str | None:
         return _run_report_url(self.output_dir)
+
+    @property
+    def prep_run_report_url(self) -> str | None:
+        return _prep_run_report_url(self.output_dir)
 
     @property
     def modellvergleich_url(self) -> str | None:
@@ -657,9 +683,16 @@ class WebBackend:
         run_type: str = "Analyse",
         analysis_mode: str = "extended",
     ) -> dict:
+        resolved = resolve_run_report_model_id(output_dir, model_id)
+        if not resolved:
+            return {
+                "ok": False,
+                "status": "error",
+                "message": "KI-Modell fehlt (UI-Auswahl oder gespeicherter Lauf).",
+            }
         return generate_run_report(
             output_dir,
-            model_id=model_id,
+            model_id=resolved,
             run_type=run_type,
             analysis_mode=analysis_mode,
             interactive=False,
@@ -675,15 +708,22 @@ class WebBackend:
         reports = []
         if report_result:
             collector.merge_ai_session_result(report_result)
-        run_pdf = collector.write_pdf()
+        run_pdf = collector.write_pdf(variant="final")
         clear_pending_collector(output_dir)
         return {
             "ok": True,
             "run_report": run_pdf,
+            "prep_run_report": {"url": _prep_run_report_url(output_dir)},
             "browse_url": browse,
             "modellvergleich_url": _modellvergleich_url(output_dir),
             "message": run_pdf.get("message", "Laufbericht erstellt."),
         }
+
+    def abort_output_report(self, output_dir: str) -> dict:
+        try:
+            return abort_ki_run_by_user(output_dir)
+        except (ValueError, OSError) as exc:
+            return {"ok": False, "message": str(exc)}
 
     def _finalize_run(
         self,
@@ -697,18 +737,26 @@ class WebBackend:
     ) -> dict:
         if defer_finalize:
             collector.set_output(output_dir, browse_url=browse_url)
-            save_pending_collector(collector, output_dir)
-            run_pdf = collector.write_pdf()
-            result["run_report"] = run_pdf
-            result["browse_url"] = browse_url
-            result["modellvergleich_url"] = _modellvergleich_url(output_dir)
-            if run_pdf.get("ok") and run_pdf.get("url"):
-                job = result.get("job") or {}
-                job["run_report_url"] = run_pdf["url"]
-                result["job"] = job
             model_id = str(result.get("report_model") or "").strip() or None
             run_type = str(result.get("run_type_label") or "Analyse")
             analysis_mode = str(result.get("analysis_mode") or "extended")
+            if model_id:
+                collector.data.extra["report_model_id"] = model_id
+            save_pending_collector(collector, output_dir)
+            prep_pdf = collector.write_pdf(variant="prep")
+            result["prep_run_report"] = prep_pdf
+            result["browse_url"] = browse_url
+            result["modellvergleich_url"] = _modellvergleich_url(output_dir)
+            job = result.get("job") or {}
+            if prep_pdf.get("ok") and prep_pdf.get("url"):
+                job["prep_run_report_url"] = prep_pdf["url"]
+            result["job"] = job
+            final_pdf: dict | None = None
+            if model_id:
+                if ai_report_in_progress(output_dir) and not background_model_matches(
+                    output_dir, model_id
+                ):
+                    join_background_ai_reports(output_dir)
             if model_id and start_background_ai_reports(
                 output_dir,
                 model_id=model_id,
@@ -718,31 +766,40 @@ class WebBackend:
                 result["report_in_progress"] = True
                 suffix = " · KI-Berichte werden im Hintergrund erstellt (Ordner nach einigen Minuten aktualisieren)"
                 result["message"] = str(result.get("message", "")) + suffix
-            else:
-                collector.warning("KI-Berichte konnten nicht im Hintergrund gestartet werden; synchroner Fallback.")
-                if model_id:
-                    sync_result = run_report_session_to_completion(
-                        output_dir,
-                        model_id=model_id,
-                        run_type=run_type,
-                        analysis_mode=analysis_mode,
-                        interactive=False,
+            elif model_id and ai_report_in_progress(output_dir) and background_model_matches(
+                output_dir, model_id
+            ):
+                result["report_in_progress"] = True
+                suffix = " · KI-Berichte werden im Hintergrund erstellt (Ordner nach einigen Minuten aktualisieren)"
+                result["message"] = str(result.get("message", "")) + suffix
+            elif model_id:
+                sync_result = run_report_session_to_completion(
+                    output_dir,
+                    model_id=model_id,
+                    run_type=run_type,
+                    analysis_mode=analysis_mode,
+                    interactive=False,
+                )
+                if sync_result.get("ok"):
+                    collector.merge_ai_session_result(sync_result)
+                    final_pdf = collector.write_pdf(variant="final")
+                    result["run_report"] = final_pdf
+                    result["modellvergleich_url"] = _modellvergleich_url(output_dir)
+                else:
+                    collector.warning(
+                        f"KI-Berichte fehlgeschlagen: {sync_result.get('message', 'Unbekannter Fehler')}"
                     )
-                    if sync_result.get("ok"):
-                        collector.merge_ai_session_result(sync_result)
-                        run_pdf = collector.write_pdf()
-                        result["run_report"] = run_pdf
-                        result["modellvergleich_url"] = _modellvergleich_url(output_dir)
-                    else:
-                        collector.warning(
-                            f"KI-Berichte (Fallback) fehlgeschlagen: {sync_result.get('message', 'Unbekannter Fehler')}"
-                        )
-                        run_pdf = collector.write_pdf()
-                        result["run_report"] = run_pdf
-                    clear_pending_collector(output_dir)
-                result["message"] = str(result.get("message", "")) + " · KI-Berichte: synchroner Fallback verwendet"
-            if run_pdf.get("ok"):
-                result["message"] = str(result.get("message", "")) + f" · {run_pdf.get('message', 'Laufbericht')}"
+                    final_pdf = collector.write_pdf(variant="final")
+                    result["run_report"] = final_pdf
+                clear_pending_collector(output_dir)
+                result["message"] = str(result.get("message", "")) + " · KI-Berichte erstellt"
+            if prep_pdf.get("ok"):
+                result["message"] = str(result.get("message", "")) + f" · {prep_pdf.get('message', 'Prep-Laufbericht')}"
+            if final_pdf and final_pdf.get("ok"):
+                job = result.get("job") or {}
+                job["run_report_url"] = final_pdf["url"]
+                result["job"] = job
+                result["message"] = str(result.get("message", "")) + f" · {final_pdf.get('message', 'Laufbericht')}"
             result["finalize_pending"] = False
             result["report_deferred"] = False
             return result
@@ -753,8 +810,9 @@ class WebBackend:
                 collector.merge_ai_session_result(ai_report)
             else:
                 collector.merge_ai_report(ai_report)
-        run_pdf = collector.write_pdf()
+        run_pdf = collector.write_pdf(variant="final")
         result["run_report"] = run_pdf
+        result["prep_run_report"] = {"url": _prep_run_report_url(output_dir)}
         result["browse_url"] = browse_url
         result["modellvergleich_url"] = _modellvergleich_url(output_dir)
         if run_pdf.get("ok") and run_pdf.get("url"):
@@ -1129,6 +1187,19 @@ class WebBackend:
 
         out = str(job.output_dir)
         run_name = str(payload.get("run_name") or suggest_run_name(series_a, series_b))
+        collector.set_run_settings(
+            build_correlation_run_settings(
+                payload,
+                series_a=series_a,
+                series_b=series_b,
+                analysis_mode=analysis_mode,
+                start_date=eff_start,
+                end_date=eff_end,
+                max_lag=max_lag,
+                frequency=eff_freq,
+                run_name=run_name,
+            )
+        )
         browse = browse_url_for(out)
         msg = f"Korrelation fertig: {run_name}"
         if job.best_lag is not None and job.best_r is not None:
@@ -1259,6 +1330,25 @@ class WebBackend:
                     details={"model": mt.model_key, **mt.details},
                 )
             )
+
+        order_mode = str(payload.get("order_mode") or "auto")
+        arma_sel = str(payload.get("arma_order") or "").strip() or None
+        garch_sel = str(payload.get("garch_order") or "").strip() or None
+        collector.set_run_settings(
+            build_tsa_run_settings(
+                payload,
+                series_slug=series_slug,
+                analysis_mode=analysis_mode,
+                models=models,
+                train_start=train_start,
+                train_end=train_end,
+                forecast_end=forecast_end,
+                order_mode=order_mode,
+                arma_order=arma_sel if order_mode == "user" else None,
+                garch_order=garch_sel if order_mode == "user" else None,
+                quantiles=quantiles,
+            )
+        )
 
         out = str(job.output_dir)
         browse = browse_url_for(out)
