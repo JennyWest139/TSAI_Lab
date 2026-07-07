@@ -65,8 +65,15 @@ from tslab.services.report_service import (
     list_report_models,
     load_report_config,
 )
-from tslab.services.report_session import prepare_report_session, step_report_session
+from tslab.services.report_runner import start_background_ai_reports
+from tslab.services.reporting_status import ReportingStatusInfo, inspect_reporting_status
+from tslab.services.report_session import (
+    prepare_report_session,
+    run_report_session_to_completion,
+    step_report_session,
+)
 from tslab.services.run_telemetry import (
+    ComponentTiming,
     RunTelemetryCollector,
     clear_pending_collector,
     langfuse_status_from_config,
@@ -94,6 +101,33 @@ from tslab.web.csv_preview import (
 )
 from tslab.web.mock_data import FREQUENCY_OPTIONS, SeriesMeta, suggest_run_name
 from tslab.web.output_browser import browse_url_for, output_root, relative_output_path, zip_directory
+
+
+def _run_report_url(output_dir: str | None) -> str | None:
+    if not output_dir:
+        return None
+    path = Path(output_dir) / "Reports" / "laufbericht.pdf"
+    if not path.is_file():
+        return None
+    rel = relative_output_path(path)
+    return f"/output/file/{rel}" if rel else None
+
+
+def _modellvergleich_url(output_dir: str | None) -> str | None:
+    if not output_dir:
+        return None
+    reports = Path(output_dir) / "Reports"
+    if not reports.is_dir():
+        return None
+    pdfs = sorted(reports.glob("Modellvergleich_*.pdf"))
+    if not pdfs:
+        legacy = reports / "modellvergleich.pdf"
+        if legacy.is_file():
+            pdfs = [legacy]
+        else:
+            return None
+    rel = relative_output_path(pdfs[-1])
+    return f"/output/file/{rel}" if rel else None
 from tslab.web.perf import log_timing
 from tslab.web.series_chart import build_pair_chart_payload, build_series_chart_payload
 from tslab.web.tsa_window_preview import build_tsa_window_preview
@@ -116,6 +150,13 @@ class CorrelationRunView:
     tags: tuple[str, ...] = ()
     category_ids: tuple[int, ...] = ()
     status: str = "fertig"
+    reporting_status: ReportingStatusInfo | None = None
+
+    @property
+    def display_status(self) -> ReportingStatusInfo:
+        if self.reporting_status is not None:
+            return self.reporting_status
+        return inspect_reporting_status(self.output_dir)
 
     @property
     def display_name(self) -> str:
@@ -134,6 +175,10 @@ class CorrelationRunView:
         rel = relative_output_path(self.output_dir) if self.output_dir else None
         return f"/output/zip/{rel}" if rel else None
 
+    @property
+    def run_report_url(self) -> str | None:
+        return _run_report_url(self.output_dir)
+
 
 @dataclass(frozen=True)
 class TsaRunView:
@@ -149,6 +194,13 @@ class TsaRunView:
     output_dir: str | None = None
     tags: tuple[str, ...] = ()
     category_ids: tuple[int, ...] = ()
+    reporting_status: ReportingStatusInfo | None = None
+
+    @property
+    def display_status(self) -> ReportingStatusInfo:
+        if self.reporting_status is not None:
+            return self.reporting_status
+        return inspect_reporting_status(self.output_dir)
 
     @property
     def display_name(self) -> str:
@@ -166,6 +218,14 @@ class TsaRunView:
     def zip_url(self) -> str | None:
         rel = relative_output_path(self.output_dir) if self.output_dir else None
         return f"/output/zip/{rel}" if rel else None
+
+    @property
+    def run_report_url(self) -> str | None:
+        return _run_report_url(self.output_dir)
+
+    @property
+    def modellvergleich_url(self) -> str | None:
+        return _modellvergleich_url(self.output_dir)
 
 
 
@@ -202,7 +262,7 @@ def _ts_to_meta(session, ts: TimeSeries, *, dates: list[date] | None = None) -> 
 
 
 def _mode_config_from_payload(payload: dict):
-    analysis_mode = str(payload.get("analysis_mode", "thesis")).strip().lower()
+    analysis_mode = str(payload.get("analysis_mode", "extended")).strip().lower()
     try:
         mode = AnalysisMode(analysis_mode)
     except ValueError as exc:
@@ -614,15 +674,14 @@ class WebBackend:
         collector.set_langfuse_status(langfuse_status_from_config(load_report_config()))
         reports = []
         if report_result:
-            reports = report_result.get("reports") or []
-            if not reports and report_result.get("report"):
-                reports = [report_result["report"]]
-            collector.merge_ai_reports(reports)
+            collector.merge_ai_session_result(report_result)
         run_pdf = collector.write_pdf()
         clear_pending_collector(output_dir)
         return {
             "ok": True,
             "run_report": run_pdf,
+            "browse_url": browse,
+            "modellvergleich_url": _modellvergleich_url(output_dir),
             "message": run_pdf.get("message", "Laufbericht erstellt."),
         }
 
@@ -637,22 +696,67 @@ class WebBackend:
         defer_finalize: bool = False,
     ) -> dict:
         if defer_finalize:
+            collector.set_output(output_dir, browse_url=browse_url)
             save_pending_collector(collector, output_dir)
-            result["finalize_pending"] = True
-            result["report_deferred"] = True
+            run_pdf = collector.write_pdf()
+            result["run_report"] = run_pdf
+            result["browse_url"] = browse_url
+            result["modellvergleich_url"] = _modellvergleich_url(output_dir)
+            if run_pdf.get("ok") and run_pdf.get("url"):
+                job = result.get("job") or {}
+                job["run_report_url"] = run_pdf["url"]
+                result["job"] = job
+            model_id = str(result.get("report_model") or "").strip() or None
+            run_type = str(result.get("run_type_label") or "Analyse")
+            analysis_mode = str(result.get("analysis_mode") or "extended")
+            if model_id and start_background_ai_reports(
+                output_dir,
+                model_id=model_id,
+                run_type=run_type,
+                analysis_mode=analysis_mode,
+            ):
+                result["report_in_progress"] = True
+                suffix = " · KI-Berichte werden im Hintergrund erstellt (Ordner nach einigen Minuten aktualisieren)"
+                result["message"] = str(result.get("message", "")) + suffix
+            else:
+                collector.warning("KI-Berichte konnten nicht im Hintergrund gestartet werden; synchroner Fallback.")
+                if model_id:
+                    sync_result = run_report_session_to_completion(
+                        output_dir,
+                        model_id=model_id,
+                        run_type=run_type,
+                        analysis_mode=analysis_mode,
+                        interactive=False,
+                    )
+                    if sync_result.get("ok"):
+                        collector.merge_ai_session_result(sync_result)
+                        run_pdf = collector.write_pdf()
+                        result["run_report"] = run_pdf
+                        result["modellvergleich_url"] = _modellvergleich_url(output_dir)
+                    else:
+                        collector.warning(
+                            f"KI-Berichte (Fallback) fehlgeschlagen: {sync_result.get('message', 'Unbekannter Fehler')}"
+                        )
+                        run_pdf = collector.write_pdf()
+                        result["run_report"] = run_pdf
+                    clear_pending_collector(output_dir)
+                result["message"] = str(result.get("message", "")) + " · KI-Berichte: synchroner Fallback verwendet"
+            if run_pdf.get("ok"):
+                result["message"] = str(result.get("message", "")) + f" · {run_pdf.get('message', 'Laufbericht')}"
+            result["finalize_pending"] = False
+            result["report_deferred"] = False
             return result
         collector.set_output(output_dir, browse_url=browse_url)
         collector.set_langfuse_status(langfuse_status_from_config(load_report_config()))
         if ai_report:
-            reports = ai_report.get("reports") or []
-            if not reports and ai_report.get("report"):
-                reports = [ai_report["report"]]
-            if reports:
-                collector.merge_ai_reports(reports)
+            if ai_report.get("reports") or ai_report.get("report"):
+                collector.merge_ai_session_result(ai_report)
             else:
                 collector.merge_ai_report(ai_report)
         run_pdf = collector.write_pdf()
         result["run_report"] = run_pdf
+        result["browse_url"] = browse_url
+        result["modellvergleich_url"] = _modellvergleich_url(output_dir)
         if run_pdf.get("ok") and run_pdf.get("url"):
             job = result.get("job") or {}
             job["run_report_url"] = run_pdf["url"]
@@ -738,6 +842,7 @@ class WebBackend:
                     run_name=suggest_run_name(r.series_a, r.series_b),
                     tags=tuple(mock.mock_run_category_names("correlation", r.id)),
                     category_ids=tuple(mock.mock_entity_category_ids("correlation", r.id)),
+                    reporting_status=inspect_reporting_status(r.output_dir),
                 )
                 for r in mock.MOCK_CORRELATION_HISTORY
             ]
@@ -783,6 +888,7 @@ class WebBackend:
                         run_name=r.run_name or suggest_run_name(r.series_a_slug, r.series_b_slug),
                         tags=cat_names,
                         category_ids=cat_ids,
+                        reporting_status=inspect_reporting_status(r.output_dir),
                     )
                 )
             return views
@@ -808,6 +914,7 @@ class WebBackend:
                     output_dir=r.output_dir,
                     tags=tuple(mock.mock_run_category_names("tsa", r.id)),
                     category_ids=tuple(mock.mock_entity_category_ids("tsa", r.id)),
+                    reporting_status=inspect_reporting_status(r.output_dir),
                 )
                 for r in mock.MOCK_TSA_HISTORY
             ]
@@ -858,6 +965,7 @@ class WebBackend:
                         output_dir=r.output_dir,
                         tags=cat_names,
                         category_ids=cat_ids,
+                        reporting_status=inspect_reporting_status(r.output_dir),
                     )
                 )
             return views
@@ -1117,6 +1225,13 @@ class WebBackend:
         except (TypeError, ValueError) as exc:
             raise ValueError("Prognose-Grafikfenster: ungueltige Jahreswerte.") from exc
 
+        from tslab.services.models_garch import parse_quantiles
+
+        try:
+            quantiles = parse_quantiles(payload.get("quantiles"))
+        except ValueError as exc:
+            raise ValueError(f"Quantile: {exc}") from exc
+
         collector = RunTelemetryCollector(run_type="TSA")
         with collector.track("tsa_job", models=",".join(models)):
             with get_session() as session:
@@ -1132,7 +1247,18 @@ class WebBackend:
                     order_mode=str(payload.get("order_mode") or "auto"),
                     arma_user_orders=parse_order_list(payload.get("arma_order")),
                     garch_user_orders=parse_order_list(payload.get("garch_order")),
+                    quantiles=quantiles,
                 )
+        for mt in job.model_timings:
+            collector.data.components.append(
+                ComponentTiming(
+                    name=f"tsa_model:{mt.folder}",
+                    duration_ms=mt.duration_ms,
+                    started_at=mt.started_at,
+                    ended_at=mt.ended_at,
+                    details={"model": mt.model_key, **mt.details},
+                )
+            )
 
         out = str(job.output_dir)
         browse = browse_url_for(out)

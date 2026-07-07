@@ -2,6 +2,7 @@
 
 :root,
 [data-theme="light"] {
+  color-scheme: light;
   --bg: #f4f6f9;
   --bg-elevated: #ffffff;
   --bg-sidebar: #0f1c2e;
@@ -27,6 +28,7 @@
 }
 
 [data-theme="dark"] {
+  color-scheme: dark;
   --bg: #0d1117;
   --bg-elevated: #161b22;
   --bg-sidebar: #010409;
@@ -58,6 +60,52 @@ body {
   color: var(--text);
   line-height: 1.5;
   min-height: 100vh;
+}
+
+/* Einheitliches Button-/Formular-Styling (Hell/Dunkel) */
+button,
+input[type="submit"],
+input[type="button"],
+input[type="reset"] {
+  font-family: inherit;
+  color: inherit;
+}
+
+button:not(.btn):not(.btn-icon):not(.btn-help) {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.45rem 0.85rem;
+  cursor: pointer;
+}
+
+button:not(.btn):not(.btn-icon):not(.btn-help):hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+button:focus-visible,
+.btn:focus-visible,
+.btn-icon:focus-visible,
+.btn-help:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+input[type="radio"],
+input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+
+label:has(input[type="radio"]),
+label:has(input[type="checkbox"]),
+.modal-card label {
+  color: var(--text);
+}
+
+select option {
+  background: var(--bg-elevated);
+  color: var(--text);
 }
 
 .mono { font-family: var(--mono); font-size: 0.88em; }
@@ -229,10 +277,10 @@ body {
   transition: background 0.15s, border-color 0.15s;
 }
 
-.btn-primary { background: var(--accent); color: #fff; }
-.btn-primary:hover { background: var(--accent-hover); }
-.btn-ghost { background: transparent; border-color: var(--border); color: var(--text); }
-.btn-ghost:hover { background: var(--accent-soft); border-color: var(--accent); }
+.btn-primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+.btn-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); color: #fff; }
+.btn-ghost { background: var(--bg-elevated); border-color: var(--border); color: var(--text); }
+.btn-ghost:hover { background: var(--accent-soft); border-color: var(--accent); color: var(--text); }
 .btn-lg { padding: 0.7rem 1.5rem; font-size: 1rem; }
 
 .btn-icon {
@@ -247,6 +295,13 @@ body {
   align-items: center;
   justify-content: center;
   font-size: 1.1rem;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.btn-icon:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--text);
 }
 
 .theme-toggle .theme-icon-dark { display: none; }
@@ -285,6 +340,7 @@ body {
 .field-row label { font-size: 0.82rem; font-weight: 600; color: var(--text-muted); }
 
 input[type="text"],
+input[type="search"],
 input[type="date"],
 input[type="number"],
 select {
@@ -386,6 +442,15 @@ input:focus, select:focus {
 .badge-muted { background: rgba(128, 128, 128, 0.15); color: var(--text-muted); }
 .badge-sm { font-size: 0.68rem; margin-right: 0.2rem; }
 .badge-ok { background: var(--success-bg); color: var(--success); }
+.badge-warn { background: rgba(180, 83, 9, 0.12); color: var(--warning); }
+.badge-incomplete { background: rgba(180, 50, 50, 0.1); color: #b43232; }
+
+.reporting-status-banner {
+  border-left: 4px solid var(--warning);
+  margin-bottom: 1rem;
+}
+[data-theme="dark"] .badge-incomplete { color: #f85149; background: rgba(248, 81, 73, 0.12); }
+[data-theme="dark"] .badge-warn { background: rgba(210, 153, 34, 0.15); }
 
 .list-toolbar {
   display: flex;
@@ -397,6 +462,17 @@ input:focus, select:focus {
 }
 .list-toolbar-actions { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; }
 .list-toolbar label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.85rem; }
+.list-toolbar input[type="search"],
+.list-toolbar select {
+  min-width: 14rem;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.92rem;
+}
 .list-toolbar input[type="search"] { min-width: 14rem; }
 
 .tag-cell {

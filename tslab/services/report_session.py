@@ -11,6 +11,7 @@ from typing import Any, Literal
 from tslab.services.ai_providers import (
     LLMUsage,
     flush_langfuse,
+    format_llm_error,
     get_provider,
     init_langfuse,
     is_rate_limit_error,
@@ -19,63 +20,130 @@ from tslab.services.ai_providers import (
 from tslab.services.output_paths import relative_output_path, resolve_output_dir_arg
 from tslab.services.report_docx import build_run_report_docx
 from tslab.services.report_ai_pdf import build_run_report_pdf
-from tslab.services.report_docx import build_run_report_docx
-from tslab.services.report_ai_pdf import build_run_report_pdf
+from tslab.services.report_naming import (
+    ai_model_filename_suffix,
+    corr_report_basename,
+    image_report_section,
+    is_generated_report_artifact,
+    modellvergleich_basename,
+    tsa_model_report_basename,
+)
 
 CHECKPOINT_CALLS = 5
 PAUSE_SECONDS = 60
 SESSION_BASENAME = ".report_session.json"
 
+_TSA_MODEL_SECTIONS: list[tuple[str, str]] = [
+    (
+        "1. Management Summary",
+        "Schreibe das Management Summary fuer Entscheider (max. eine Seite, deutsch). "
+        "Kern-KPIs, Eignung fuer Prognose (**Ja** / **Nein** / **Beschraenkt**), "
+        "Qualitaetsskala 1–5, Konfidenz, Empfehlung. Nur belegte Fakten.",
+    ),
+    (
+        "2. Introduction of the TSA",
+        "Beschreibe Einleitung und Kontext dieser Zeitreihenanalyse (deutsch): "
+        "Ziel, Zeitreihe, Trainingsfenster, Prognosehorizont, Modelltyp, Datenbasis.",
+    ),
+    (
+        "3. Analysis and setting parameters for the TSA",
+        "Erlaeutere Modellwahl, Parameterschaetzung und Diagnostik vor Residuenpruefung "
+        "(deutsch): Ordung ARMA/GARCH, Koeffizienten, AIC/BIC, Signifikanz — nur aus den Dateien.",
+    ),
+    (
+        "4. Main outcome and components of this TSA",
+        "Darstellung der Haetergebnisse (deutsch): Prognose, Quantile, Volatilitaet, "
+        "Zerlegung, zentrale Grafiken — mit Bezug auf die gelieferten Kennzahlen.",
+    ),
+    (
+        "5. Residuals",
+        "Residuenanalyse (deutsch): Ljung-Box, Jarque-Bera, ARCH-LM, ACF/PACF der Residuen, "
+        "Auffaelligkeiten und Modelladequatheit.",
+    ),
+    (
+        "6. Conclusion",
+        "Schlussfolgerung (deutsch): Gesamturteil, groesste Risiken, Empfehlung fuer "
+        "weiteres Vorgehen, offene Punkte.",
+    ),
+]
+
 _SYSTEM_DE = (
-    "Du bist Analyst fuer Zeitreihen und oekonometrische Auswertungen (Diplomarbeit-Stil). "
-    "Antworte auf Deutsch, sachlich und fuer Fachleser verstaendlich. "
-    "Keine erfundenen Zahlen — nur was in den Daten/Grafiken sichtbar ist."
+    "Du bist Aktuar und Senior Analyst fuer Zeitreihen- und Risikoberichterstattung "
+    "(Diplomarbeit-Stil, deutsch). Antworte sachlich, strukturiert und nur mit "
+    "belegten Kennzahlen aus den gelieferten Dateien und Grafiken — keine erfundenen Werte."
 )
 
 
 def _tsa_report_prompts(run_type: str, analysis_mode: str) -> dict[str, str]:
     is_tsa = run_type.upper() == "TSA"
+    exec_summary = (
+        "Erstelle eine Executive Summary fuer Entscheider (max. eine Seite Text). "
+        "Nutze ausschliesslich die vorliegenden Analysen zu Text/Tabellen und Grafiken.\n\n"
+        "Pflichtstruktur:\n"
+        "1) Modell und Analysezweck (1–2 Saetze)\n"
+        "2) Wichtigste Kennzahlen (Bulletpoints: Schaetzer, AIC/BIC, Diagnostik p-Werte, "
+        "Prognosehorizont, Quantile — nur wenn in den Daten)\n"
+        "3) Eignung fuer Zeitreihenanalyse/Prognose: genau eine Bewertung "
+        "**Ja**, **Nein** oder **Beschraenkt** (fett markieren)\n"
+        "4) Qualitaetsskala 1–5 (1=unbrauchbar, 5=hervorragend) mit Konfidenz "
+        "(niedrig/mittel/hoch) und kurzer fachlicher Begruendung\n"
+        "5) Groesste Risiken/Auffaelligkeiten und Empfehlung fuer weiteres Vorgehen\n\n"
+        "Wenn Informationen fehlen, das explizit benennen."
+    )
     base_text = (
-        "Analysiere die folgenden Dateiinhalte aus einem Analyse-Lauf. "
-        "Nenne Kernergebnisse, Auffaelligkeiten und Einordnung (Korrelation/TSA)."
+        "Du erstellst die fachliche Auswertung fuer einen Aktuarsbericht. "
+        "Analysiere summary.txt, diagnostics.txt und Tabellen vollstaendig: "
+        "Modellordnung, Koeffizienten, Signifikanz, Residuen-Diagnostik (Ljung-Box, "
+        "Jarque-Bera, ARCH-LM), Prognose und Quantile. "
+        "Nenne nur belegte Zahlen."
     )
     base_image = (
-        "Beschreibe diese Grafik aus einem Zeitreihen-Analyse-Lauf: Achsen, Verlauf, "
-        "besondere Muster, Einordnung fuer Korrelation oder TSA. Kurz und praezise."
-    )
-    base_summary = (
-        "Fasse den gesamten Analyse-Lauf in 2–4 Absaetzen zusammen "
-        "(Zweck, wichtigste Befunde aus Text/Tabellen und Grafiken)."
+        "Beschreibe diese Grafik fuer einen Aktuarsbericht: Achsen, Einheiten, "
+        "Zeitraum, Trainings- vs. Prognosebereich, Auffaelligkeiten, Quantile/KBaender. "
+        "Ordne oekonomisch ein (Trend, Volatilitaet, Ereignisse wie Crash 1987, "
+        "Finanzkrise 2008, COVID-2020 soweit sichtbar)."
     )
     if not is_tsa:
-        return {"text": base_text, "image": base_image, "summary": base_summary, "thesis_abgleich": ""}
+        corr_text = (
+            "Du erstellst die fachliche Auswertung fuer eine Korrelationsanalyse. "
+            "Nutze nur korrelationsrelevante Inhalte aus summary/diagnostics/tabellen: "
+            "Korrelationsstaerke und Vorzeichen, bestes Lag/Fuehrung, Stabilitaet ueber das Fenster, "
+            "Auffaelligkeiten in den Reihen (z.B. Regimewechsel). "
+            "Nenne keine TSA-/Modellfit-Themen (ARMA/GARCH-Parameter, Residuen-Tests), "
+            "wenn diese nicht explizit in den CORR-Dateien enthalten sind."
+        )
+        corr_image = (
+            "Beschreibe diese Grafik fuer einen Korrelationsbericht: Achsen, Zeitraum, "
+            "Lead/Lag-Muster, Veraenderungen der Kopplung, Ausreisser und sichtbare Ereigniseinfluesse "
+            "(z.B. COVID oder Volatilitaetsphasen), nur wenn im Plot erkennbar."
+        )
+        corr_summary = (
+            "Erstelle eine Executive Summary fuer die Korrelation (max. eine Seite): "
+            "Kernaussage zur Beziehung der Reihen, beste Lag-Interpretation, Stabilitaet/Unsicherheit, "
+            "relevante Ereigniseinfluesse (z.B. COVID/Volatilitaet) nur bei belegbarer Evidenz. "
+            "Fuehre keine nicht-relevanten Pruefungen auf."
+        )
+        return {
+            "text": corr_text,
+            "image": corr_image,
+            "summary": corr_summary,
+            "thesis_abgleich": "",
+        }
 
     text = (
-        "Analysiere die Modell-Ausgaben (insbesondere summary.txt) fuer dieses TSA-Modell. "
-        "Gehe ein auf: Parameterschaetzung und Modellordnung, Signifikanz der Koeffizienten, "
-        "Residuen-Diagnostik, Prognosehorizont, Prognose-Quantile (falls in den Daten), "
-        "und den Verlauf der Zeitreihe. Ordne bekannte Marktereignisse ein "
-        "(z. B. Crash 1987, Dotcom 2000, Finanzkrise 2008, COVID-2020), soweit im "
-        "Beobachtungszeitraum sichtbar. Nur Fakten aus den Dateien — keine erfundenen Werte."
+        base_text
+        + " Kontext: TSA-Modell. Gehe auf Parameterschaetzung, Restunsicherheit, "
+        "Prognoseguete und Zeitreihenverlauf inkl. bekannter Marktereignisse ein."
     )
-    image = (
-        "Beschreibe diese TSA-Grafik: Achsen, Einheiten, Trainings- vs. Prognosebereich, "
-        "Konfidenzbaender/Quantile falls vorhanden, Auffaelligkeiten in Residuen, Volatilitaet "
-        "oder Zerlegung. Ordne Muster oekonomisch ein (Trend, Volatilitaetscluster, Ereignisse)."
-    )
-    summary = (
-        "Fasse dieses TSA-Modell in 3–5 Absaetzen zusammen: Modellwahl, Schaetzergebnisse, "
-        "Diagnostik, Prognose und Einordnung des Zeitreihenverlaufs inkl. relevanter Ereignisse."
-    )
+    image = base_image + " Kontext: TSA-Modellausgabe."
     thesis_abgleich = (
-        "Vergleiche die R-Koeffizienten der Diplomarbeit mit den geschaetzten Werten dieses Laufs "
-        "(coefficient_abgleich.txt). Nenne uebereinstimmende und abweichende Parameter, "
-        "moegliche Gruende (Stichprobe, Software, Optimierung) und ob die Abweichungen "
-        "oekonomisch relevant sind."
+        "Vergleiche coefficient_abgleich.txt (Diplomarbeit R vs. dieser Lauf). "
+        "Tabellarische Gedankenfuehrung: uebereinstimmende vs. abweichende Parameter, "
+        "moegliche Ursachen (Stichprobe, Software, Optimierung), Relevanz fuer die Modellguete."
     )
     if analysis_mode.lower() != "thesis":
         thesis_abgleich = ""
-    return {"text": text, "image": image, "summary": summary, "thesis_abgleich": thesis_abgleich}
+    return {"text": text, "image": image, "summary": exec_summary, "thesis_abgleich": thesis_abgleich}
 
 
 def _resolve_output_dir(output_dir: str | Path) -> Path:
@@ -107,7 +175,7 @@ class RateLimitEvent:
 
 @dataclass
 class ReportTask:
-    kind: Literal["text_bundle", "image", "summary", "thesis_abgleich"]
+    kind: Literal["text_bundle", "image", "summary", "thesis_abgleich", "section"]
     label: str
     payload: dict[str, Any] = field(default_factory=dict)
 
@@ -138,6 +206,8 @@ class ReportTargetState:
     summary: str = ""
     png_count: int = 0
     text_count: int = 0
+    output_basename: str = ""
+    report_layout: str = "standard"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -154,6 +224,8 @@ class ReportTargetState:
             "summary": self.summary,
             "png_count": self.png_count,
             "text_count": self.text_count,
+            "output_basename": self.output_basename,
+            "report_layout": self.report_layout,
         }
 
     @classmethod
@@ -172,6 +244,8 @@ class ReportTargetState:
             summary=str(data.get("summary") or ""),
             png_count=int(data.get("png_count") or 0),
             text_count=int(data.get("text_count") or 0),
+            output_basename=str(data.get("output_basename") or ""),
+            report_layout=str(data.get("report_layout") or "standard"),
         )
 
 
@@ -285,24 +359,79 @@ def discover_report_targets(
     return [(run_path, f"TSLab {run_type}-Bericht")]
 
 
-def _build_tasks_for_dir(
-    target_dir: Path,
+def _build_tsa_comparison_target(
+    run_path: Path,
+    model_dirs: list[Path],
     *,
-    run_type: str,
-    analysis_mode: str,
-    run_root: Path,
-    output_basename: str,
-) -> tuple[list[ReportTask], list[tuple[str, str]], int, int]:
+    ai_suffix: str,
+) -> ReportTargetState | None:
+    """KI-Modellvergleich fuer Reports/ (nach allen Einzelmodell-Berichten)."""
+    from tslab.services.report_service import _read_text_file
+
+    if len(model_dirs) < 2:
+        return None
+
+    text_bundle_parts: list[str] = []
+    text_sections: list[tuple[str, str]] = []
+    for model_dir in model_dirs:
+        summary_path = model_dir / "summary.txt"
+        if not summary_path.is_file():
+            continue
+        content = _read_text_file(summary_path)
+        text_bundle_parts.append(f"### Modell {model_dir.name}\n{content}")
+        text_sections.append((f"{model_dir.name}/summary.txt", content))
+
+    if len(text_bundle_parts) < 2:
+        return None
+
+    compare_text = (
+        "Du erstellst den fachlichen Modellvergleich fuer einen TSA-Lauf mit mehreren Modellen. "
+        "Vergleiche alle gelieferten summary.txt Inhalte. "
+        "Rangiere die Modelle (1. beste, 2. zweitbeste, …). "
+        "Pro Modell: Eignung **Ja**, **Nein** oder **Beschraenkt**, Qualitaetsskala 1–5, "
+        "Konfidenz (niedrig/mittel/hoch) und kurze Begruendung. "
+        "Nenne nur belegte Kennzahlen."
+    )
+    compare_summary = (
+        "Erstelle eine Executive Summary des Modellvergleichs (max. eine Seite). "
+        "Pflicht: klare Rangfolge (1., 2., 3., …), Gesamtempfehlung welches Modell "
+        "fuer Prognose/Risiko bevorzugt werden sollte, groesste Unsicherheiten."
+    )
+
+    tasks = [
+        ReportTask(
+            kind="text_bundle",
+            label="Modellvergleich",
+            payload={"parts": text_bundle_parts, "prompt": compare_text},
+        ),
+        ReportTask(
+            kind="summary",
+            label="Executive Summary Modellvergleich",
+            payload={"prompt": compare_summary},
+        ),
+    ]
+
+    return ReportTargetState(
+        rel_path="Reports",
+        title="TSA Modellvergleich",
+        tasks=tasks,
+        text_sections=[[h, b] for h, b in text_sections],
+        text_count=len(text_sections),
+        output_basename=modellvergleich_basename(ai_suffix),
+    )
+
+
+def _collect_dir_sources(
+    target_dir: Path,
+) -> tuple[list[str], list[tuple[str, str]], list[Path], list[Path], list[Path]]:
     from tslab.services.report_service import _read_table_preview, _read_text_file, _scan_run_dir
 
     pngs, txts, tables = _scan_run_dir(target_dir)
-    prompts = _tsa_report_prompts(run_type, analysis_mode)
     text_sections: list[tuple[str, str]] = []
     text_bundle_parts: list[str] = []
-    skip_names = {output_basename, "ai_bericht.pdf"}
 
     for tf in txts:
-        if tf.name in skip_names:
+        if is_generated_report_artifact(tf.name):
             continue
         content = _read_text_file(tf)
         text_bundle_parts.append(f"### {tf.name}\n{content}")
@@ -312,6 +441,78 @@ def _build_tasks_for_dir(
         preview = _read_table_preview(table_path)
         text_bundle_parts.append(f"### {table_path.name}\n{preview}")
         text_sections.append((table_path.name, preview))
+
+    return text_bundle_parts, text_sections, pngs, txts, tables
+
+
+def _build_tsa_model_tasks(
+    target_dir: Path,
+    *,
+    analysis_mode: str,
+    run_root: Path,
+    text_bundle_parts: list[str],
+    pngs: list[Path],
+) -> list[ReportTask]:
+    prompts = _tsa_report_prompts("TSA", analysis_mode)
+    tasks: list[ReportTask] = []
+
+    for img in pngs:
+        tasks.append(
+            ReportTask(
+                kind="image",
+                label=img.name,
+                payload={"path": str(img), "prompt": prompts["image"]},
+            )
+        )
+
+    for heading, section_prompt in _TSA_MODEL_SECTIONS:
+        tasks.append(
+            ReportTask(
+                kind="section",
+                label=heading,
+                payload={"parts": list(text_bundle_parts), "prompt": section_prompt},
+            )
+        )
+
+    if analysis_mode.lower() == "thesis" and prompts["thesis_abgleich"]:
+        abgleich = run_root / "coefficient_abgleich.txt"
+        if abgleich.is_file():
+            tasks.append(
+                ReportTask(
+                    kind="thesis_abgleich",
+                    label="Diplomarbeit Koeffizienten-Abgleich",
+                    payload={
+                        "path": str(abgleich),
+                        "prompt": prompts["thesis_abgleich"],
+                    },
+                )
+            )
+
+    return tasks
+
+
+def _build_tasks_for_dir(
+    target_dir: Path,
+    *,
+    run_type: str,
+    analysis_mode: str,
+    run_root: Path,
+    tsa_model: bool = False,
+) -> tuple[list[ReportTask], list[tuple[str, str]], int, int]:
+    text_bundle_parts, text_sections, pngs, txts, tables = _collect_dir_sources(target_dir)
+    prompts = _tsa_report_prompts(run_type, analysis_mode)
+
+    if tsa_model:
+        tasks = _build_tsa_model_tasks(
+            target_dir,
+            analysis_mode=analysis_mode,
+            run_root=run_root,
+            text_bundle_parts=text_bundle_parts,
+            pngs=pngs,
+        )
+        if not tasks:
+            return [], text_sections, len(pngs), len(txts) + len(tables)
+        return tasks, text_sections, len(pngs), len(txts) + len(tables)
 
     tasks: list[ReportTask] = []
     if text_bundle_parts:
@@ -336,7 +537,7 @@ def _build_tasks_for_dir(
     tasks.append(
         ReportTask(
             kind="summary",
-            label="Zusammenfassung",
+            label="Executive Summary",
             payload={"prompt": prompts["summary"]},
         )
     )
@@ -390,7 +591,21 @@ def prepare_report_session(
     if not spec.enabled:
         return {"ok": False, "status": "error", "message": f"Modell {spec.id} ist deaktiviert."}
 
+    from tslab.services.report_service import _env
+
+    if spec.provider == "openai" and not (_env("OPENAI_API_KEY") or config.openai_api_key):
+        return {"ok": False, "status": "error", "message": "OpenAI API-Key fehlt."}
+    if spec.provider == "gemini" and not (_env("GEMINI_API_KEY") or config.gemini_api_key):
+        return {"ok": False, "status": "error", "message": "Gemini API-Key fehlt."}
+
+    ai_suffix = ai_model_filename_suffix(model_label=spec.label, model_id=spec.id)
+    is_tsa = run_type.upper() == "TSA"
+
     targets_data: list[ReportTargetState] = []
+    model_dirs: list[Path] = []
+    if is_tsa:
+        model_dirs = list_tsa_model_dirs(run_path)
+
     for target_dir, title in discover_report_targets(
         run_path, run_type=run_type, analysis_mode=analysis_mode
     ):
@@ -399,7 +614,7 @@ def prepare_report_session(
             run_type=run_type,
             analysis_mode=analysis_mode,
             run_root=run_path,
-            output_basename=config.output_basename,
+            tsa_model=is_tsa and target_dir.resolve() != run_path.resolve(),
         )
         if not tasks:
             continue
@@ -408,6 +623,13 @@ def prepare_report_session(
             if target_dir.resolve() == run_path.resolve()
             else target_dir.relative_to(run_path).as_posix()
         )
+        output_basename = ""
+        report_layout = "standard"
+        if is_tsa and target_dir.resolve() != run_path.resolve():
+            output_basename = tsa_model_report_basename(target_dir.name, ai_suffix)
+            report_layout = "tsa_model"
+        elif not is_tsa:
+            output_basename = corr_report_basename(ai_suffix)
         targets_data.append(
             ReportTargetState(
                 rel_path=rel,
@@ -416,8 +638,15 @@ def prepare_report_session(
                 text_sections=[[h, b] for h, b in text_sections],
                 png_count=png_n,
                 text_count=txt_n,
+                output_basename=output_basename,
+                report_layout=report_layout,
             )
         )
+
+    if model_dirs:
+        comparison = _build_tsa_comparison_target(run_path, model_dirs, ai_suffix=ai_suffix)
+        if comparison:
+            targets_data.append(comparison)
 
     if not targets_data:
         return {
@@ -474,49 +703,81 @@ def _finalize_target_documents(
     config: Any,
     run_path: Path,
 ) -> dict[str, Any]:
+    from collections import defaultdict
+
     target_dir = run_path if target.rel_path == "." else run_path / target.rel_path
-    doc_text_sections = [(h, b) for h, b in target.text_sections]
-    for heading, body in target.ai_text_notes:
-        doc_text_sections.append((heading, body))
+    appendix_sections = [(h, b) for h, b in target.text_sections]
 
     image_sections: list[tuple[str, str, Path]] = []
+    section_images: dict[str, list[tuple[str, str, Path]]] = defaultdict(list)
     for row in target.image_sections:
         if len(row) >= 3:
-            image_sections.append((row[0], row[1], Path(row[2])))
+            item = (row[0], row[1], Path(row[2]))
+            image_sections.append(item)
+            if target.report_layout == "tsa_model":
+                section_images[image_report_section(row[0])].append(item)
 
-    if not target.summary:
-        if state.finish_early:
-            target.summary = (
-                "Bericht vorzeitig abgeschlossen (Rate-Limit / Nutzerwahl). "
-                "Einige KI-Abschnitte fehlen."
-            )
-        else:
-            target.summary = "Keine Zusammenfassung erzeugt."
+    numbered_sections: list[tuple[str, str]] = []
+    analysis_sections: list[tuple[str, str]] = []
+    summary = target.summary
+
+    if target.report_layout == "tsa_model":
+        section_order = [h for h, _ in _TSA_MODEL_SECTIONS]
+        notes_by_heading = {h: b for h, b in target.ai_text_notes}
+        for heading in section_order:
+            body = notes_by_heading.get(heading, "")
+            if not body and state.finish_early:
+                body = "(Abschnitt wegen Rate-Limit / Abbruch nicht erzeugt.)"
+            numbered_sections.append((heading, body))
+        summary = notes_by_heading.get("1. Management Summary", summary or "")
+        extra_notes = [
+            (h, b)
+            for h, b in target.ai_text_notes
+            if h not in section_order
+        ]
+        if extra_notes:
+            appendix_sections = extra_notes + appendix_sections
+    else:
+        analysis_sections = [(h, b) for h, b in target.ai_text_notes]
+        if not summary:
+            if state.finish_early:
+                summary = (
+                    "Bericht vorzeitig abgeschlossen (Rate-Limit / Nutzerwahl). "
+                    "Einige KI-Abschnitte fehlen."
+                )
+            else:
+                summary = "Executive Summary konnte nicht erzeugt werden."
 
     subtitle = f"Ordner: {target_dir.name} · {state.run_type}"
-    report_name = config.output_basename
+    report_name = target.output_basename
+    if not report_name:
+        ai_suffix = ai_model_filename_suffix(
+            model_label=state.model_label, model_id=state.model_id
+        )
+        if state.run_type.upper() == "TSA":
+            report_name = f"TSA_Modell_Bericht_{target_dir.name}_{ai_suffix}.docx"
+        else:
+            report_name = corr_report_basename(ai_suffix)
     out_path = target_dir / report_name
 
-    build_run_report_docx(
-        out_path,
-        title=target.title,
-        subtitle=subtitle,
-        summary=target.summary,
-        text_sections=doc_text_sections,
-        image_sections=image_sections,
-        model_label=state.model_label,
-    )
+    docx_kwargs: dict[str, Any] = {
+        "title": target.title,
+        "subtitle": subtitle,
+        "summary": summary,
+        "text_sections": [],
+        "analysis_sections": analysis_sections,
+        "appendix_sections": appendix_sections,
+        "image_sections": image_sections if target.report_layout != "tsa_model" else [],
+        "model_label": state.model_label,
+        "layout": target.report_layout,
+        "numbered_sections": numbered_sections or None,
+        "section_images": dict(section_images) if section_images else None,
+    }
 
-    pdf_path = target_dir / Path(config.output_basename).with_suffix(".pdf").name
-    build_run_report_pdf(
-        pdf_path,
-        title=target.title,
-        subtitle=subtitle,
-        summary=target.summary,
-        text_sections=doc_text_sections,
-        image_sections=image_sections,
-        model_label=state.model_label,
-    )
+    build_run_report_docx(out_path, **docx_kwargs)
+
+    pdf_path = target_dir / Path(report_name).with_suffix(".pdf").name
+    build_run_report_pdf(pdf_path, **docx_kwargs)
 
     rel = relative_output_path(out_path)
     pdf_rel = relative_output_path(pdf_path)
@@ -620,7 +881,29 @@ def step_report_session(
                 max_tokens=max_tok,
                 trace_name="tslab-report-text",
             )
-            target.ai_text_notes.append(["KI-Auswertung Text/Tabellen", resp.text])
+            target.ai_text_notes.append(["Technische Auswertung (Text/Tabellen)", resp.text])
+            record_usage(resp.usage)
+            return
+
+        if task.kind == "section":
+            parts = task.payload.get("parts") or []
+            prompt = str(task.payload.get("prompt") or "")
+            image_ctx = "\n\n".join(
+                f"Figure {row[0]}: {row[1]}" for row in target.image_sections if len(row) > 1
+            )
+            user_parts = []
+            if parts:
+                user_parts.append("--- Source files ---\n" + "\n\n".join(parts))
+            if image_ctx:
+                user_parts.append("--- Figure descriptions ---\n" + image_ctx)
+            resp = provider.complete_text(
+                system=system,
+                user=prompt + "\n\n" + "\n\n".join(user_parts),
+                model=spec.model_name,
+                max_tokens=max_tok,
+                trace_name=f"tslab-report-section-{task.label[:20]}",
+            )
+            target.ai_text_notes.append([task.label, resp.text])
             record_usage(resp.usage)
             return
 
@@ -696,9 +979,16 @@ def step_report_session(
                                 [img_path.name, f"(Fehler: abgebrochen)", str(img_path)]
                             )
                         elif task.kind == "text_bundle" and not target.ai_text_notes:
-                            target.ai_errors.append("KI-Auswertung Text: abgebrochen (Rate-Limit)")
+                            target.ai_errors.append("Textauswertung: abgebrochen (Rate-Limit)")
                             target.ai_text_notes.append(
-                                ["KI-Auswertung Text/Tabellen", "(Fehler: abgebrochen)"]
+                                ["Technische Auswertung (Text/Tabellen)", "(Fehler: abgebrochen)"]
+                            )
+                        elif task.kind == "section":
+                            target.ai_errors.append(
+                                f"{task.label}: abgebrochen (Rate-Limit)"
+                            )
+                            target.ai_text_notes.append(
+                                [task.label, "(Fehler: abgebrochen)"]
                             )
                         target.task_index += 1
                     break
@@ -739,15 +1029,19 @@ def step_report_session(
                             state.calls_since_checkpoint = 0
                             continue
                         return _awaiting_response(state, reason="rate_limit", error=str(exc))
-                    msg = f"{task.label}: {exc}"
+                    msg = f"{task.label}: {format_llm_error(exc)}"
                     target.ai_errors.append(msg)
                     if task.kind == "text_bundle":
-                        target.ai_text_notes.append(["KI-Auswertung Text/Tabellen", f"(Fehler: {exc})"])
+                        target.ai_text_notes.append(
+                            ["Technische Auswertung (Text/Tabellen)", f"(Fehler: {exc})"]
+                        )
                     elif task.kind == "image":
                         img_path = Path(str(task.payload.get("path") or ""))
                         target.image_sections.append(
                             [img_path.name, f"(Fehler bei Bildanalyse: {exc})", str(img_path)]
                         )
+                    elif task.kind == "section":
+                        target.ai_text_notes.append([task.label, f"(Fehler: {exc})"])
                     elif task.kind == "summary":
                         target.summary = f"Zusammenfassung konnte nicht erzeugt werden: {exc}"
 

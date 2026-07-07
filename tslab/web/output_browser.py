@@ -14,6 +14,7 @@ from tslab.services.output_paths import (
     relative_output_path,
     safe_resolve_output,
 )
+from tslab.services.reporting_status import inspect_reporting_status, is_run_output_dir
 
 _IMAGE_EXT = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"}
 _DOC_EXT = {".txt", ".csv", ".xlsx", ".pdf", ".html", ".json", ".docx"}
@@ -42,12 +43,19 @@ def list_directory(rel_path: str = "") -> dict:
         if item.is_file():
             entry["size"] = item.stat().st_size
             entry["ext"] = item.suffix.lower()
+        elif is_run_output_dir(item):
+            entry["reporting_status"] = inspect_reporting_status(item).to_dict()
         entries.append(entry)
+
+    reporting_status = None
+    if is_run_output_dir(target):
+        reporting_status = inspect_reporting_status(target).to_dict()
 
     return {
         "path": rel_path or "",
         "parent": "/".join(rel_path.replace("\\", "/").strip("/").split("/")[:-1]),
         "entries": entries,
+        "reporting_status": reporting_status,
     }
 
 

@@ -10,7 +10,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from tslab.services.output_paths import browse_url_for, relative_output_path
+from tslab.services.output_paths import browse_url_for, relative_output_path, resolve_output_dir_arg
 
 _log = logging.getLogger(__name__)
 
@@ -104,16 +104,9 @@ class RunTelemetryCollector:
         self.data.langfuse = dict(status)
 
     def merge_ai_report(self, report: dict[str, Any] | None) -> None:
+        """Links/Fehler aus einem fertigen Ziel-Bericht (ohne Token — siehe merge_ai_session_result)."""
         if not report:
             return
-        usage = report.get("token_usage") or {}
-        if usage:
-            self.add_tokens(
-                prompt_tokens=int(usage.get("prompt_tokens") or 0),
-                completion_tokens=int(usage.get("completion_tokens") or 0),
-                total_tokens=int(usage.get("total_tokens") or 0),
-                model=str(usage.get("model") or ""),
-            )
         for err in report.get("ai_errors") or []:
             self.error(str(err))
         for warn in report.get("ai_warnings") or []:
@@ -121,13 +114,29 @@ class RunTelemetryCollector:
         if report.get("report_url"):
             label = "KI-Bericht (.docx)"
             target = report.get("target")
-            if target and target != ".":
+            rel = str(report.get("report_rel") or "")
+            rel_lower = rel.lower()
+            if "modellvergleich_" in rel_lower:
+                label = "KI-Modellvergleich (.docx)"
+            elif "corr_ai_bericht_" in rel_lower:
+                label = "CORR AI-Bericht (.docx)"
+            elif "tsa_modell_bericht_" in rel_lower:
+                label = "TSA Modell-Bericht (.docx)"
+            elif target and target != ".":
                 label = f"KI-Bericht {target} (.docx)"
             self.data.links[label] = str(report["report_url"])
         if report.get("report_pdf_url"):
             label = "KI-Bericht (.pdf)"
             target = report.get("target")
-            if target and target != ".":
+            rel = str(report.get("report_rel") or "")
+            rel_lower = rel.lower()
+            if "modellvergleich_" in rel_lower:
+                label = "KI-Modellvergleich (.pdf)"
+            elif "corr_ai_bericht_" in rel_lower:
+                label = "CORR AI-Bericht (.pdf)"
+            elif "tsa_modell_bericht_" in rel_lower:
+                label = "TSA Modell-Bericht (.pdf)"
+            elif target and target != ".":
                 label = f"KI-Bericht {target} (.pdf)"
             self.data.links[label] = str(report["report_pdf_url"])
         if report.get("report_rel"):
@@ -140,6 +149,30 @@ class RunTelemetryCollector:
             self.data.extra["rate_limit_pause_count"] = int(
                 self.data.extra.get("rate_limit_pause_count", 0)
             ) + int(pause_count)
+
+    def merge_ai_session_result(self, report_result: dict[str, Any] | None) -> None:
+        """Token einmalig aus Session-Ergebnis; Links je Ziel-Bericht."""
+        if not report_result:
+            return
+        usage = report_result.get("token_usage") or {}
+        calls = int(usage.get("calls") or 0)
+        prompt = int(usage.get("prompt_tokens") or 0)
+        completion = int(usage.get("completion_tokens") or 0)
+        total = int(usage.get("total_tokens") or 0) or (prompt + completion)
+        if calls or total:
+            self.data.tokens.prompt_tokens = prompt
+            self.data.tokens.completion_tokens = completion
+            self.data.tokens.total_tokens = total
+            self.data.tokens.calls = calls
+            model = str(usage.get("model") or "").strip()
+            if model:
+                self.data.tokens.models = [model]
+        reports = report_result.get("reports") or []
+        if not reports and report_result.get("report"):
+            reports = [report_result["report"]]
+        self.merge_ai_reports(reports)
+        for err in report_result.get("ai_errors") or []:
+            self.error(str(err))
 
     def merge_ai_reports(self, reports: list[dict[str, Any]] | None) -> None:
         for report in reports or []:
@@ -218,7 +251,7 @@ def _component_from_dict(data: dict[str, Any]) -> ComponentTiming:
 
 
 def save_pending_collector(collector: RunTelemetryCollector, output_dir: str | Path) -> Path:
-    path = Path(output_dir).resolve() / "Reports" / PENDING_BASENAME
+    path = resolve_output_dir_arg(output_dir) / "Reports" / PENDING_BASENAME
     path.parent.mkdir(parents=True, exist_ok=True)
     d = collector.data
     payload = {
@@ -234,7 +267,7 @@ def save_pending_collector(collector: RunTelemetryCollector, output_dir: str | P
 
 
 def load_pending_collector(output_dir: str | Path) -> RunTelemetryCollector | None:
-    path = Path(output_dir).resolve() / "Reports" / PENDING_BASENAME
+    path = resolve_output_dir_arg(output_dir) / "Reports" / PENDING_BASENAME
     if not path.is_file():
         return None
     payload = json.loads(path.read_text(encoding="utf-8"))
@@ -255,7 +288,7 @@ def load_pending_collector(output_dir: str | Path) -> RunTelemetryCollector | No
 
 
 def clear_pending_collector(output_dir: str | Path) -> None:
-    path = Path(output_dir).resolve() / "Reports" / PENDING_BASENAME
+    path = resolve_output_dir_arg(output_dir) / "Reports" / PENDING_BASENAME
     if path.is_file():
         path.unlink()
 

@@ -3,9 +3,17 @@
  */
 const TSLab = (() => {
   const STORAGE_THEME = "tslab-theme";
+  const STORAGE_CORR = "tslab-corr-settings";
+  const STORAGE_TSA = "tslab-tsa-settings";
+  const STORAGE_BOOT = "tslab-boot-id";
   let askRateLimit = null;
+  let coreInitialized = false;
+  let appBootPromise = null;
 
   function initCore() {
+    if (coreInitialized) return;
+    coreInitialized = true;
+
     const saved = localStorage.getItem(STORAGE_THEME) || "light";
     document.documentElement.setAttribute("data-theme", saved);
 
@@ -119,18 +127,43 @@ const TSLab = (() => {
       return `<strong>${data.message || "Fehler"}</strong>`;
     }
     let html = `<strong>${data.message}</strong>`;
-    const browse = data.job?.browse_url;
+    const browse = data.browse_url || data.job?.browse_url;
     if (browse) {
       html += ` <a href="${browse}" class="stat-link">Output-Ordner</a>`;
     }
     const reps = data.reports || (data.report ? [data.report] : []);
-    for (const rep of reps) {
-      if (rep?.ok && rep.report_url) {
-        const label = rep.target && rep.target !== "." ? rep.target : "Bericht";
-        html += ` <a href="${rep.report_url}" class="stat-link">${label} (.docx)</a>`;
-        if (rep.report_pdf_url) {
-          html += ` <a href="${rep.report_pdf_url}" class="stat-link">${label} (PDF)</a>`;
-        }
+    const modelReports = reps.filter(
+      (r) => r?.ok && r.report_url && r.target && r.target !== "." && r.target !== "Reports"
+    );
+    const cmpReport = reps.find(
+      (r) =>
+        r?.ok &&
+        (r.target === "Reports" ||
+          (r.report_pdf_rel || "").toLowerCase().includes("modellvergleich_"))
+    );
+    for (const rep of modelReports) {
+      let label = rep.target;
+      if (rep.report_pdf_rel) {
+        const base = rep.report_pdf_rel.split("/").pop() || "";
+        if (base) label = base.replace(/\.(docx|pdf)$/i, "");
+      }
+      html += ` <a href="${rep.report_url}" class="stat-link">${label} (.docx)</a>`;
+      if (rep.report_pdf_url) {
+        html += ` <a href="${rep.report_pdf_url}" class="stat-link">${label} (PDF)</a>`;
+      }
+    }
+    const corrReports = reps.filter(
+      (r) => r?.ok && r.report_url && (!r.target || r.target === ".")
+    );
+    for (const rep of corrReports) {
+      let label = "CORR AI-Bericht";
+      if (rep.report_pdf_rel) {
+        const base = rep.report_pdf_rel.split("/").pop() || "";
+        if (base) label = base.replace(/\.(docx|pdf)$/i, "");
+      }
+      html += ` <a href="${rep.report_url}" class="stat-link">${label} (.docx)</a>`;
+      if (rep.report_pdf_url) {
+        html += ` <a href="${rep.report_pdf_url}" class="stat-link">${label} (PDF)</a>`;
       }
     }
     const single = data.report;
@@ -140,14 +173,24 @@ const TSLab = (() => {
         html += ` <a href="${single.report_pdf_url}" class="stat-link">KI-Bericht (PDF)</a>`;
       }
     }
+    const cmpUrl =
+      data.modellvergleich_url ||
+      cmpReport?.report_pdf_url ||
+      cmpReport?.report_url;
+    if (cmpUrl) {
+      html += ` <a href="${cmpUrl}" class="stat-link">Modellvergleich (PDF)</a>`;
+    }
     const allErrors = reps.flatMap((r) => r?.ai_errors || []);
     if (allErrors.length) {
-      html += ` <span class="hint"> · KI: ${allErrors.length} Fehler (Details im .docx)</span>`;
+      html += ` <span class="hint"> · KI: ${allErrors.length} Fehler (Details im Bericht)</span>`;
     } else if (single?.ai_errors?.length) {
-      html += ` <span class="hint"> · KI: ${single.ai_errors.length} Fehler (Details im .docx)</span>`;
+      html += ` <span class="hint"> · KI: ${single.ai_errors.length} Fehler (Details im Bericht)</span>`;
     }
     if (data.rate_limit_pause_count) {
       html += ` <span class="hint"> · ${data.rate_limit_pause_count}× 1-Min.-Pause</span>`;
+    }
+    if (data.report_in_progress) {
+      html += ` <span class="hint"> · KI-Berichte laufen im Hintergrund — Output-Ordner in einigen Minuten neu laden</span>`;
     }
     const runRep = data.run_report;
     if (runRep?.ok && runRep.url) {
@@ -219,65 +262,100 @@ const TSLab = (() => {
     if (!outputDir || !modelId) return runData;
 
     const runType = runData.run_type_label || "Analyse";
+    const analysisMode =
+      runData.analysis_mode || runData.job?.analysis_mode || "extended";
 
-    const prep = await fetch("/api/report/session/prepare", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        output_dir: outputDir,
-        report_model: modelId,
-        run_type: runType,
-        analysis_mode: analysisMode,
-      }),
-    });
+    let prep;
+    try {
+      prep = await fetch("/api/report/session/prepare", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          output_dir: outputDir,
+          report_model: modelId,
+          run_type: runType,
+          analysis_mode: analysisMode,
+        }),
+      });
+    } catch (err) {
+      runData.message += ` · KI-Bericht: Netzwerkfehler (${err})`;
+      return runData;
+    }
     const prepData = await prep.json();
     if (!prepData.ok) {
       runData.report = prepData;
       runData.message += ` · KI-Bericht: ${prepData.message}`;
+      const finFail = await fetch("/api/run/finalize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ output_dir: outputDir, report_result: null }),
+      });
+      const finFailData = await finFail.json();
+      if (finFailData.ok && finFailData.run_report) {
+        runData.run_report = finFailData.run_report;
+        runData.message += ` · ${finFailData.run_report.message || "Laufbericht"}`;
+      }
       return runData;
     }
 
     toast("KI-Berichte werden erstellt …");
     let reportResult = null;
 
-    while (true) {
-      const stepRes = await fetch("/api/report/session/step", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ output_dir: outputDir }),
-      });
-      const stepData = await stepRes.json();
-      if (stepData.status === "awaiting_user") {
-        const choice = askRateLimit
-          ? await askRateLimit(stepData)
-          : "pause";
-        const actionRes = await fetch("/api/report/session/step", {
+    try {
+      while (true) {
+        const stepRes = await fetch("/api/report/session/step", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ output_dir: outputDir, action: choice }),
+          body: JSON.stringify({ output_dir: outputDir }),
         });
-        const actionData = await actionRes.json();
-        if (actionData.status === "done") {
-          reportResult = actionData;
-          break;
-        }
-        if (actionData.status === "awaiting_user") {
+        const stepData = await stepRes.json();
+        if (stepData.status === "awaiting_user") {
+          const choice = askRateLimit
+            ? await askRateLimit(stepData)
+            : "pause";
+          const actionRes = await fetch("/api/report/session/step", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ output_dir: outputDir, action: choice }),
+          });
+          const actionData = await actionRes.json();
+          if (actionData.status === "done") {
+            reportResult = actionData;
+            break;
+          }
+          if (actionData.status === "awaiting_user") {
+            continue;
+          }
+          if (!actionData.ok) {
+            reportResult = actionData;
+            break;
+          }
           continue;
         }
-        if (!actionData.ok) {
-          reportResult = actionData;
+        if (stepData.status === "done") {
+          reportResult = stepData;
           break;
         }
-        continue;
+        if (!stepData.ok) {
+          reportResult = stepData;
+          break;
+        }
       }
-      if (stepData.status === "done") {
-        reportResult = stepData;
-        break;
-      }
-      if (!stepData.ok) {
-        reportResult = stepData;
-        break;
-      }
+    } catch (err) {
+      runData.message += ` · KI-Bericht: Fehler (${err})`;
+      try {
+        const finErr = await fetch("/api/run/finalize", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ output_dir: outputDir, report_result: null }),
+        });
+        const finErrData = await finErr.json();
+        if (finErrData.ok && finErrData.run_report) {
+          runData.run_report = finErrData.run_report;
+          runData.message += ` · ${finErrData.run_report.message || "Laufbericht"}`;
+        }
+      } catch (_) { /* ignore */ }
+      return runData;
     }
 
     if (reportResult) {
@@ -302,6 +380,13 @@ const TSLab = (() => {
       runData.run_report = finData.run_report;
       runData.message += ` · ${finData.run_report.message || "Laufbericht"}`;
     }
+    if (finData.browse_url) {
+      runData.browse_url = finData.browse_url;
+      if (runData.job) runData.job.browse_url = finData.browse_url;
+    }
+    if (finData.modellvergleich_url) {
+      runData.modellvergleich_url = finData.modellvergleich_url;
+    }
     return runData;
   }
 
@@ -324,6 +409,93 @@ const TSLab = (() => {
       clearTimeout(t);
       t = setTimeout(() => fn(...args), ms);
     };
+  }
+
+  async function syncAppBootSession() {
+    if (!appBootPromise) {
+      appBootPromise = (async () => {
+        try {
+          const res = await fetch("/api/app-session");
+          if (!res.ok) return;
+          const { boot_id: bootId } = await res.json();
+          const prev = sessionStorage.getItem(STORAGE_BOOT);
+          if (prev && bootId && prev !== bootId) {
+            sessionStorage.removeItem(STORAGE_CORR);
+            sessionStorage.removeItem(STORAGE_TSA);
+          }
+          if (bootId) sessionStorage.setItem(STORAGE_BOOT, bootId);
+        } catch {
+          /* best effort */
+        }
+      })();
+    }
+    await appBootPromise;
+  }
+
+  function readSessionJson(key) {
+    try {
+      const raw = sessionStorage.getItem(key);
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function captureFormState(form) {
+    if (!form) return null;
+    const state = {};
+    const fd = new FormData(form);
+    const models = fd.getAll("models");
+    if (models.length) state.models = models;
+    for (const [k, v] of fd.entries()) {
+      if (k === "models") continue;
+      state[k] = v;
+    }
+    const showReturns = document.getElementById("corrShowReturns");
+    if (showReturns) state.show_returns = showReturns.checked;
+    return state;
+  }
+
+  function applyFormState(form, state) {
+    if (!form || !state) return;
+    if (Array.isArray(state.models)) {
+      form.querySelectorAll('input[name="models"]').forEach((cb) => {
+        cb.checked = state.models.includes(cb.value);
+      });
+    }
+    if (typeof state.show_returns === "boolean") {
+      const showReturns = document.getElementById("corrShowReturns");
+      if (showReturns) showReturns.checked = state.show_returns;
+    }
+    for (const [key, value] of Object.entries(state)) {
+      if (key === "models" || key === "show_returns") continue;
+      const fields = form.querySelectorAll(`[name="${CSS.escape(key)}"]`);
+      if (!fields.length) continue;
+      const first = fields[0];
+      if (first.type === "radio") {
+        fields.forEach((r) => {
+          r.checked = r.value === String(value);
+        });
+      } else if (first.type === "checkbox" && fields.length === 1) {
+        first.checked = Boolean(value);
+      } else {
+        first.value = String(value);
+      }
+    }
+  }
+
+  function bindFormSessionPersistence(form, storageKey) {
+    if (!form) return;
+    const save = debounce(() => {
+      try {
+        sessionStorage.setItem(storageKey, JSON.stringify(captureFormState(form)));
+      } catch {
+        /* ignore quota */
+      }
+    }, 150);
+    form.addEventListener("change", save);
+    form.addEventListener("input", save);
+    document.getElementById("corrShowReturns")?.addEventListener("change", save);
   }
 
   function createChartModal() {
@@ -477,7 +649,8 @@ const TSLab = (() => {
     return res.json();
   }
 
-  function initCorrelation() {
+  async function initCorrelation() {
+    await syncAppBootSession();
     const selA = document.getElementById("seriesA");
     const selB = document.getElementById("seriesB");
     const vonSelect = document.getElementById("corrStart");
@@ -487,6 +660,10 @@ const TSLab = (() => {
     const showReturnsEl = document.getElementById("corrShowReturns");
     const previewBtn = document.getElementById("corrShowPreviewBtn");
     const form = document.getElementById("correlationForm");
+    const savedCorr = readSessionJson(STORAGE_CORR);
+    if (savedCorr) applyFormState(form, savedCorr);
+    let useSavedDates = Boolean(savedCorr?.start_date && savedCorr?.end_date);
+    const hadSavedFrequency = Boolean(savedCorr?.frequency);
     let validateDates = () => false;
     let gStart;
     let gEnd;
@@ -568,17 +745,26 @@ const TSLab = (() => {
       positionBar(document.getElementById("barB"), data.series_b.first_date, data.series_b.last_date, gStart, gEnd);
       positionBar(document.getElementById("barOverlap"), data.overlap_start, data.overlap_end, gStart, gEnd);
 
-      if (freqSelect && data.suggested_frequency) {
+      if (freqSelect && data.suggested_frequency && !hadSavedFrequency) {
         freqSelect.value = data.suggested_frequency;
       }
 
       const dates = data.dates || [];
+      const vonDefault =
+        useSavedDates && dates.includes(savedCorr.start_date)
+          ? savedCorr.start_date
+          : data.suggested_start;
+      const bisDefault =
+        useSavedDates && dates.includes(savedCorr.end_date)
+          ? savedCorr.end_date
+          : data.suggested_end;
+      useSavedDates = false;
       validateDates = bindIndependentDateRange(
         vonSelect,
         bisSelect,
         dates,
-        data.suggested_start,
-        data.suggested_end,
+        vonDefault,
+        bisDefault,
         () => refreshWindowBar()
       );
       overlapDates = dates;
@@ -621,6 +807,7 @@ const TSLab = (() => {
     selB?.addEventListener("change", updateOverlapDebounced);
     freqSelect?.addEventListener("change", updateOverlapDebounced);
     previewBtn?.addEventListener("click", openCorrPreview);
+    bindFormSessionPersistence(form, STORAGE_CORR);
     filterSeriesBByA();
     updateOverlap();
 
@@ -655,13 +842,18 @@ const TSLab = (() => {
     return res.json();
   }
 
-  function initTsa() {
+  async function initTsa() {
+    await syncAppBootSession();
     const sel = document.getElementById("tsaSeries");
     const vonSelect = document.getElementById("trainStart");
     const bisSelect = document.getElementById("trainEnd");
     const forecastInput = document.getElementById("forecastEnd");
     const form = document.getElementById("tsaForm");
     const metaBox = document.getElementById("seriesMeta");
+    const savedTsa = readSessionJson(STORAGE_TSA);
+    if (savedTsa) applyFormState(form, savedTsa);
+    let useSavedTrainDates = Boolean(savedTsa?.train_start && savedTsa?.train_end);
+    let useSavedForecast = savedTsa?.forecast_end || null;
     let validateTrainDates = () => false;
 
     async function updateMeta() {
@@ -689,16 +881,30 @@ const TSLab = (() => {
         dates.find((d) => d.startsWith("2006-07")) ||
         dates[Math.max(0, dates.length - 2)];
 
+      const vonDefault =
+        useSavedTrainDates && dates.includes(savedTsa.train_start)
+          ? savedTsa.train_start
+          : s.first_date;
+      const bisDefault =
+        useSavedTrainDates && dates.includes(savedTsa.train_end)
+          ? savedTsa.train_end
+          : suggestedCutoff;
+      useSavedTrainDates = false;
+      const forecastRestore = useSavedForecast;
+      useSavedForecast = null;
+
       validateTrainDates = bindIndependentDateRange(
         vonSelect,
         bisSelect,
         dates,
-        s.first_date,
-        suggestedCutoff,
+        vonDefault,
+        bisDefault,
         (ok, von, bis) => {
           if (forecastInput && ok && bis) {
             forecastInput.min = bis;
-            if (!forecastInput.value || forecastInput.value < bis) {
+            if (forecastRestore) {
+              forecastInput.value = forecastRestore;
+            } else if (!forecastInput.value || forecastInput.value < bis) {
               forecastInput.value = bis;
             }
           }
@@ -706,20 +912,22 @@ const TSLab = (() => {
       );
     }
 
-    sel?.addEventListener("change", () => {
-      updateMeta();
-    });
-    updateMeta();
-
     function syncOrderPanel() {
       const panel = document.getElementById("userOrderPanel");
       const mode = document.querySelector('input[name="order_mode"]:checked')?.value;
       if (panel) panel.hidden = mode !== "user";
     }
+    if (savedTsa) syncOrderPanel();
     document.querySelectorAll('input[name="order_mode"]').forEach((el) => {
       el.addEventListener("change", syncOrderPanel);
     });
     syncOrderPanel();
+    bindFormSessionPersistence(form, STORAGE_TSA);
+
+    sel?.addEventListener("change", () => {
+      updateMeta();
+    });
+    updateMeta();
 
     async function openTsaWindowChart() {
       if (!chartModal || typeof TSLabCharts === "undefined" || !TSLabCharts.renderTsaWindowChart) {

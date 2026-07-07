@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_reporting_badge.html" import reporting_badge %}
 {% block title %}Output{% endblock %}
 {% block page_title %}Ergebnis-Ordner{% endblock %}
 {% block page_subtitle %}<span class="mono">{{ listing.path or 'output/' }}</span>{% endblock %}
@@ -13,18 +14,51 @@
   {% endif %}
 </p>
 
+{% if listing.reporting_status and listing.reporting_status.code != 'complete' %}
+<section class="card reporting-status-banner">
+  <p style="margin:0;">
+    Lauf-Status:
+    {{ reporting_badge(listing.reporting_status) }}
+    {% if listing.reporting_status.detail %}
+    <span class="hint"> — {{ listing.reporting_status.detail }}</span>
+    {% endif %}
+    {% if listing.reporting_status.code == 'in_progress' %}
+    <span class="hint"> · Seite in einigen Minuten neu laden</span>
+    {% elif listing.reporting_status.code == 'incomplete' %}
+    <span class="hint"> · TSA/CORR mit KI erneut starten oder Ordner <code>Reports/.pending_run.json</code> manuell prüfen</span>
+    {% endif %}
+  </p>
+</section>
+{% elif listing.reporting_status and listing.reporting_status.code == 'complete' %}
+<p class="hint" style="margin-top:0;">
+  Lauf-Status: {{ reporting_badge(listing.reporting_status) }}
+</p>
+{% endif %}
+
 <section class="card">
   <div class="table-wrap">
     <table class="data-table">
-      <thead><tr><th>Name</th><th>Typ</th><th></th></tr></thead>
+      <thead><tr><th>Name</th><th>Typ</th><th>Status</th><th></th></tr></thead>
       <tbody>
         {% if listing.parent %}
-        <tr><td colspan="3"><a href="{{ url_for('output_browse', subpath=listing.parent) }}">..</a></td></tr>
+        <tr><td colspan="4"><a href="{{ url_for('output_browse', subpath=listing.parent) }}">..</a></td></tr>
         {% endif %}
         {% for e in listing.entries %}
         <tr>
-          <td>{% if e.is_dir %}<a href="{{ url_for('output_browse', subpath=e.path) }}">{{ e.name }}/</a>{% else %}{{ e.name }}{% endif %}</td>
+          <td>
+            {% if e.is_dir %}<a href="{{ url_for('output_browse', subpath=e.path) }}">{{ e.name }}/</a>{% else %}{{ e.name }}{% endif %}
+            {% if e.name == '.pending_run.json' %}
+            <span class="badge badge-incomplete badge-sm" title="Finalisierung nicht abgeschlossen">hängend</span>
+            {% elif e.name == '.report_session.json' %}
+            <span class="badge badge-warn badge-sm" title="KI-Berichtssession aktiv">KI aktiv</span>
+            {% endif %}
+          </td>
           <td class="muted">{% if e.is_dir %}Ordner{% else %}{{ e.ext }}{% endif %}</td>
+          <td>
+            {% if e.reporting_status %}
+            {{ reporting_badge(e.reporting_status) }}
+            {% else %}—{% endif %}
+          </td>
           <td>{% if not e.is_dir and e.ext in ['.png', '.jpg', '.txt', '.csv', '.xlsx', '.pdf', '.docx'] %}<a href="{{ url_for('output_file', subpath=e.path) }}" class="stat-link" target="_blank">öffnen</a>{% endif %}</td>
         </tr>
         {% endfor %}

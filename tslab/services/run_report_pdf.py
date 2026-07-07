@@ -60,24 +60,70 @@ def write_run_report_pdf(path: Path, telemetry: RunTelemetry) -> Path:
     story.append(Paragraph("Zeiten je Komponente", h1))
     if telemetry.components:
         rows = [["Komponente", "Von", "Bis", "Dauer (ms)", "Details"]]
+        cell = ParagraphStyle(
+            "RunCell",
+            parent=body,
+            fontSize=8,
+            leading=10,
+            spaceAfter=0,
+            wordWrap="CJK",
+        )
+
+        def _component_label(name: str) -> str:
+            if name == "tsa_job":
+                return "TSA (gesamt)"
+            if name.startswith("tsa_model:"):
+                return f"  · Modell {name.split(':', 1)[1]}"
+            return name
+
+        has_tsa_total = any(c.name == "tsa_job" for c in telemetry.components)
+        total_ms = sum(
+            c.duration_ms
+            for c in telemetry.components
+            if not (has_tsa_total and c.name.startswith("tsa_model:"))
+        )
+
+        def _wrap_detail(detail: str) -> str:
+            # Lange Detailtexte in Reportlab sauber umbrechen.
+            return detail.replace(", ", ",<br/>")
+
         for c in telemetry.components:
             detail = ", ".join(f"{k}={v}" for k, v in c.details.items() if v is not None)
             von = c.started_at.astimezone().strftime("%Y-%m-%d %H:%M:%S")
             bis = c.ended_at.astimezone().strftime("%Y-%m-%d %H:%M:%S")
-            rows.append([c.name, von, bis, f"{c.duration_ms:.1f}", detail or "—"])
-        rows.append(["Gesamt", "", "", f"{telemetry.total_ms:.1f}", ""])
-        table = Table(rows, colWidths=[3.5 * cm, 3.2 * cm, 3.2 * cm, 2.2 * cm, 5.4 * cm])
-        table.setStyle(
-            TableStyle(
+            rows.append(
                 [
-                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#eef4fc")),
-                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                    ("FONTSIZE", (0, 0), (-1, -1), 8),
-                    ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
-                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    Paragraph(_component_label(c.name), cell),
+                    Paragraph(von, cell),
+                    Paragraph(bis, cell),
+                    Paragraph(f"{c.duration_ms:.1f}", cell),
+                    Paragraph(_wrap_detail(detail or "—"), cell),
                 ]
             )
+        rows.append(
+            [
+                Paragraph("Gesamt", cell),
+                Paragraph("", cell),
+                Paragraph("", cell),
+                Paragraph(f"{total_ms:.1f}", cell),
+                Paragraph("", cell),
+            ]
         )
+        table = Table(rows, colWidths=[3.5 * cm, 3.2 * cm, 3.2 * cm, 2.2 * cm, 5.4 * cm])
+        style_cmds = [
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#eef4fc")),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 8),
+            ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ]
+        for row_idx, c in enumerate(telemetry.components, start=1):
+            if c.name == "tsa_job":
+                style_cmds.append(("BACKGROUND", (0, row_idx), (-1, row_idx), colors.HexColor("#f5f9ff")))
+                style_cmds.append(("FONTNAME", (0, row_idx), (0, row_idx), "Helvetica-Bold"))
+            elif c.name.startswith("tsa_model:"):
+                style_cmds.append(("BACKGROUND", (0, row_idx), (-1, row_idx), colors.HexColor("#fafafa")))
+        table.setStyle(TableStyle(style_cmds))
         story.append(table)
     else:
         story.append(Paragraph("Keine Komponentenzeiten erfasst.", body))
