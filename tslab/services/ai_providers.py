@@ -74,6 +74,32 @@ def _usage_from_response(resp: Any, *, model: str) -> LLMUsage:
     )
 
 
+def _usage_from_gemini_response(resp: Any, *, model: str) -> LLMUsage:
+    meta = getattr(resp, "usage_metadata", None)
+    if meta is None:
+        return LLMUsage(model=model)
+    prompt = int(getattr(meta, "prompt_token_count", 0) or 0)
+    completion = int(getattr(meta, "candidates_token_count", 0) or 0) or int(
+        getattr(meta, "response_token_count", 0) or 0
+    )
+    total = int(getattr(meta, "total_token_count", 0) or 0) or (prompt + completion)
+    return LLMUsage(
+        prompt_tokens=prompt,
+        completion_tokens=completion,
+        total_tokens=total,
+        model=model,
+    )
+
+
+def gemini_sdk_available() -> bool:
+    try:
+        import google.genai  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
+
+
 class LLMProvider(ABC):
     @abstractmethod
     def complete_text(
@@ -197,10 +223,51 @@ class OpenAIProvider(LLMProvider):
 
 
 class GeminiProvider(LLMProvider):
-    """Platzhalter — aktiviert wenn GEMINI_API_KEY gesetzt und google-genai installiert."""
+    """Google Gemini via google-genai SDK."""
 
     def __init__(self, api_key: str | None) -> None:
         self._api_key = api_key
+        self._client_instance = None
+
+    def _client(self):
+        if self._client_instance is not None:
+            return self._client_instance
+        if not self._api_key:
+            raise ValueError(
+                "GEMINI_API_KEY fehlt. Bitte in .env setzen (nicht committen)."
+            )
+        if not gemini_sdk_available():
+            raise ImportError(
+                "Paket google-genai fehlt. Bitte installieren: pip install google-genai"
+            )
+        from google import genai
+
+        self._client_instance = genai.Client(api_key=self._api_key)
+        return self._client_instance
+
+    def _generate(
+        self,
+        *,
+        model: str,
+        contents: object,
+        system: str,
+        max_tokens: int,
+    ) -> LLMResponse:
+        from google.genai import types
+
+        config = types.GenerateContentConfig(max_output_tokens=max_tokens)
+        if system.strip():
+            config = types.GenerateContentConfig(
+                max_output_tokens=max_tokens,
+                system_instruction=system,
+            )
+        resp = self._client().models.generate_content(
+            model=model,
+            contents=contents,
+            config=config,
+        )
+        text = (getattr(resp, "text", None) or "").strip()
+        return LLMResponse(text=text, usage=_usage_from_gemini_response(resp, model=model))
 
     def complete_text(
         self,
@@ -211,10 +278,8 @@ class GeminiProvider(LLMProvider):
         max_tokens: int,
         trace_name: str,
     ) -> LLMResponse:
-        raise NotImplementedError(
-            "Gemini-Provider ist vorbereitet aber noch nicht implementiert. "
-            "GEMINI_API_KEY setzen und google-genai nachruesten."
-        )
+        del trace_name
+        return self._generate(model=model, contents=user, system=system, max_tokens=max_tokens)
 
     def describe_image(
         self,
@@ -225,7 +290,17 @@ class GeminiProvider(LLMProvider):
         max_tokens: int,
         trace_name: str,
     ) -> LLMResponse:
-        raise NotImplementedError("Gemini Vision noch nicht implementiert.")
+        del trace_name
+        from google.genai import types
+
+        mime = "image/png"
+        if image_path.suffix.lower() in (".jpg", ".jpeg"):
+            mime = "image/jpeg"
+        contents = [
+            types.Part.from_bytes(data=image_path.read_bytes(), mime_type=mime),
+            prompt,
+        ]
+        return self._generate(model=model, contents=contents, system="", max_tokens=max_tokens)
 
 
 def get_provider(provider_name: str, config: Any) -> LLMProvider:
@@ -265,6 +340,23 @@ def is_rate_limit_error(exc: BaseException) -> bool:
     if resp is not None and getattr(resp, "status_code", None) == 429:
         return True
     return False
+
+
+def format_llm_error(exc: BaseException) -> str:
+    """Nutzerfreundliche KI-Fehlermeldung."""
+    msg = str(exc).strip()
+    lower = msg.lower()
+    if "model_not_found" in lower or "does not have access to model" in lower:
+        return (
+            "KI-Modell ist für diesen API-Key/Projekt nicht freigeschaltet "
+            "(model_not_found). Bitte ein anderes Modell wählen."
+        )
+    if "no longer available" in lower or ("404" in lower and "model" in lower):
+        return (
+            "KI-Modell ist bei Google/OpenAI nicht mehr verfügbar. "
+            "Bitte ein anderes Modell wählen (z. B. Gemini 2.5 Flash)."
+        )
+    return msg
 
 
 def flush_langfuse() -> None:

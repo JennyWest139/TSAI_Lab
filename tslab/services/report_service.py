@@ -14,6 +14,7 @@ from tslab.services.ai_providers import (
     ModelSpec,
     LLMUsage,
     flush_langfuse,
+    gemini_sdk_available,
     get_provider,
     init_langfuse,
     langfuse_configured,
@@ -76,31 +77,47 @@ def _env(key: str) -> str | None:
 def load_report_config() -> ReportConfig:
     cfg = load_defaults().get("ai_reports", {})
     env_enabled = _env_bool("TSLAB_AI_REPORTS_ENABLED")
-    enabled = env_enabled if env_enabled is not None else bool(cfg.get("enabled"))
+    has_openai = bool(_env("OPENAI_API_KEY") or cfg.get("openai_api_key"))
+    has_gemini = bool(_env("GEMINI_API_KEY") or cfg.get("gemini_api_key")) and gemini_sdk_available()
+    if env_enabled is not None:
+        enabled = env_enabled
+    elif bool(cfg.get("enabled")):
+        enabled = True
+    else:
+        # Auto-aktivieren wenn mindestens ein Provider-Key gesetzt ist
+        enabled = has_openai or has_gemini
     models_raw = cfg.get("models") or [
         {
             "id": "openai:gpt-4o-mini",
             "provider": "openai",
-            "label": "OpenAI GPT-4o mini",
+            "label": "GPT-4o mini",
             "model": "gpt-4o-mini",
             "vision": True,
             "enabled": True,
         },
         {
-            "id": "openai:gpt-4o",
+            "id": "openai:gpt-5-mini",
             "provider": "openai",
-            "label": "OpenAI GPT-4o",
-            "model": "gpt-4o",
+            "label": "GPT-5 mini",
+            "model": "gpt-5-mini",
             "vision": True,
             "enabled": True,
         },
         {
-            "id": "gemini:gemini-2.0-flash",
-            "provider": "gemini",
-            "label": "Google Gemini 2.0 Flash",
-            "model": "gemini-2.0-flash",
+            "id": "openai:gpt-5-nano",
+            "provider": "openai",
+            "label": "GPT-5 nano",
+            "model": "gpt-5-nano",
             "vision": True,
-            "enabled": False,
+            "enabled": True,
+        },
+        {
+            "id": "gemini:gemini-2.5-flash",
+            "provider": "gemini",
+            "label": "Gemini",
+            "model": "gemini-2.5-flash",
+            "vision": True,
+            "enabled": True,
         },
     ]
     models: list[ModelSpec] = []
@@ -135,7 +152,7 @@ def load_report_config() -> ReportConfig:
 def list_report_models(*, include_disabled: bool = False) -> list[dict[str, Any]]:
     cfg = load_report_config()
     has_openai = bool(_env("OPENAI_API_KEY") or cfg.openai_api_key)
-    has_gemini = bool(_env("GEMINI_API_KEY") or cfg.gemini_api_key)
+    has_gemini = bool(_env("GEMINI_API_KEY") or cfg.gemini_api_key) and gemini_sdk_available()
     out: list[dict[str, Any]] = []
     for m in cfg.models:
         if not m.enabled and not include_disabled:
@@ -144,6 +161,15 @@ def list_report_models(*, include_disabled: bool = False) -> list[dict[str, Any]
             m.provider == "gemini" and has_gemini
         )
         if not available and not include_disabled:
+            out.append(
+                {
+                    "id": m.id,
+                    "label": m.label,
+                    "provider": m.provider,
+                    "vision": m.vision,
+                    "available": False,
+                }
+            )
             continue
         out.append(
             {
@@ -161,7 +187,9 @@ def ai_reports_available() -> bool:
     cfg = load_report_config()
     if not cfg.enabled:
         return False
-    return bool(_env("OPENAI_API_KEY") or cfg.openai_api_key)
+    has_openai = bool(_env("OPENAI_API_KEY") or cfg.openai_api_key)
+    has_gemini = bool(_env("GEMINI_API_KEY") or cfg.gemini_api_key) and gemini_sdk_available()
+    return has_openai or has_gemini
 
 
 def _resolve_output_dir(output_dir: str | Path) -> Path:

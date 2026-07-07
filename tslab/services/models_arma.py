@@ -6,6 +6,7 @@ import pandas as pd
 from statsmodels.tsa.arima.model import ARIMA
 
 from tslab.services.models_ar import _with_monthly_freq
+from tslab.services.stats_fit import suppress_optimizer_warnings
 
 
 def fit_arma(
@@ -19,6 +20,7 @@ def fit_arma(
     p, q = order
     model = ARIMA(y, order=(p, 0, q), trend="c")
     # innovations_mle: naher an R/arima; Default statespace landet oft in lokalem Minimum
-    res = model.fit(method=method)
+    with suppress_optimizer_warnings():
+        res = model.fit(method=method)
     fitted = pd.Series(res.fittedvalues, index=y.index, name="fitted")
     return res, fitted.dropna()

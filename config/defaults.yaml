@@ -42,7 +42,7 @@ ai_reports:
   enabled: false
   max_tokens: 1000
   default_model: "openai:gpt-4o-mini"
-  output_basename: "ai_bericht.docx"
+  output_basename: "CORR_AI_Bericht.docx"
   openai_api_key: null
   gemini_api_key: null
   langfuse_public_key: null
@@ -51,19 +51,25 @@ ai_reports:
   models:
     - id: openai:gpt-4o-mini
       provider: openai
-      label: "OpenAI GPT-4o mini"
+      label: "GPT-4o mini"
       model: gpt-4o-mini
       vision: true
       enabled: true
-    - id: openai:gpt-4o
+    - id: openai:gpt-5-mini
       provider: openai
-      label: "OpenAI GPT-4o"
-      model: gpt-4o
+      label: "GPT-5 mini"
+      model: gpt-5-mini
       vision: true
       enabled: true
-    - id: gemini:gemini-2.0-flash
-      provider: gemini
-      label: "Google Gemini 2.0 Flash"
-      model: gemini-2.0-flash
+    - id: openai:gpt-5-nano
+      provider: openai
+      label: "GPT-5 nano"
+      model: gpt-5-nano
       vision: true
-      enabled: false
+      enabled: true
+    - id: gemini:gemini-2.5-flash
+      provider: gemini
+      label: "Gemini"
+      model: gemini-2.5-flash
+      vision: true
+      enabled: true

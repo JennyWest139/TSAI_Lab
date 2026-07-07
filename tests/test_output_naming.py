@@ -7,6 +7,13 @@ from datetime import date
 
 from tslab.services.order_selection import parse_order_list
 from tslab.services.output_naming import correlation_folder_name, tsa_folder_name
+from tslab.services.report_naming import (
+    ai_model_filename_suffix,
+    corr_report_basename,
+    modellvergleich_basename,
+    tsa_model_folder_tag,
+    tsa_model_report_basename,
+)
 
 
 class OutputNamingTests(unittest.TestCase):
@@ -28,6 +35,31 @@ class OutputNamingTests(unittest.TestCase):
             train_end=date(2006, 7, 1),
         )
         self.assertEqual(name, "TSA_ex_pdax_1987-12-01_to_2006-07-01")
+
+    def test_tsa_model_report_names(self) -> None:
+        self.assertEqual(tsa_model_folder_tag("arma11_garch11"), "ARMA11GARCH11")
+        self.assertEqual(
+            tsa_model_report_basename("arma11", "GPT-5-nano"),
+            "TSA_Modell_Bericht_ARMA11_GPT-5-nano.docx",
+        )
+        self.assertEqual(
+            corr_report_basename("OhneKI"),
+            "CORR_AI_Bericht_OhneKI.docx",
+        )
+        self.assertEqual(
+            modellvergleich_basename("GPT-4o-mini"),
+            "Modellvergleich_GPT-4o-mini.docx",
+        )
+        self.assertEqual(
+            ai_model_filename_suffix(model_label="GPT-4o mini"),
+            "GPT-4o-mini",
+        )
+
+    def test_parse_quantiles(self) -> None:
+        from tslab.services.models_garch import DEFAULT_QUANTILES, parse_quantiles
+
+        self.assertEqual(parse_quantiles(None), DEFAULT_QUANTILES)
+        self.assertEqual(parse_quantiles("0.1, 0.9"), (0.1, 0.9))
 
 
 class OrderParseTests(unittest.TestCase):

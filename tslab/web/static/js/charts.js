@@ -36,9 +36,19 @@ const TSLabCharts = (() => {
   }
 
   function legendY(traceCount) {
-    if (traceCount <= 2) return 1.1;
-    if (traceCount <= 4) return 1.16;
-    return 1.22;
+    if (traceCount <= 2) return 1.02;
+    if (traceCount <= 4) return 1.02;
+    return 1.0;
+  }
+
+  function layoutTopBand(traceCount) {
+    if (traceCount <= 2) {
+      return { topMargin: 88, titleY: 1.18 };
+    }
+    if (traceCount <= 4) {
+      return { topMargin: 112, titleY: 1.22 };
+    }
+    return { topMargin: 128, titleY: 1.26 };
   }
 
   function renderSeriesChart(containerId, data) {
@@ -144,15 +154,20 @@ const TSLabCharts = (() => {
       },
     ];
 
+    const band = layoutTopBand(traces.length);
     const layout = {
       ...plotTheme(),
-      margin: { l: 60, r: 60, t: 56, b: 56 },
+      margin: { l: 60, r: 60, t: band.topMargin, b: 56 },
       title: {
         text: wrapPlotlyText(
           `Zeitreihen-Vorschau · ${data.window?.start || ""} … ${data.window?.end || ""}`,
           52
         ),
         font: { size: 14 },
+        x: 0,
+        xanchor: "left",
+        y: band.titleY,
+        yanchor: "top",
       },
       xaxis: { ...plotTheme().xaxis, title: "Datum" },
       yaxis: {
@@ -170,7 +185,13 @@ const TSLabCharts = (() => {
         tickfont: { color: "#c55a11" },
         showgrid: false,
       },
-      legend: { orientation: "h", y: legendY(traces.length), x: 0, font: { size: 10 } },
+      legend: {
+        orientation: "h",
+        y: legendY(traces.length),
+        yanchor: "bottom",
+        x: 0,
+        font: { size: 10 },
+      },
       hovermode: "x unified",
     };
 

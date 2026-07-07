@@ -1,18 +1,51 @@
 {# KI-Bericht (optional) — Korrelation & TSA #}
+
 <section class="card">
+
   <h2>{{ section_title | default("KI-Bericht (optional)") }}</h2>
-  {% if ai_reports_enabled and report_models %}
+
   <div class="field-row">
+
     <label for="{{ form_prefix }}ReportModel">KI-Bericht</label>
-    <select id="{{ form_prefix }}ReportModel" name="report_model">
-      <option value="" selected>Kein KI-Bericht</option>
+
+    <select id="{{ form_prefix }}ReportModel" name="report_model" class="report-model-select">
+
+      <option value="" selected>Ohne KI</option>
+
       {% for m in report_models %}
-      <option value="{{ m.id }}">{{ m.label }}</option>
+
+      <option value="{{ m.id }}"{% if not m.available %} disabled{% endif %}>
+
+        {{ m.label }}{% if not m.available %} (API-Key fehlt){% endif %}
+
+      </option>
+
       {% endfor %}
+
     </select>
-    <p class="hint">Bei Modellwahl werden nach dem Lauf je Modellordner (TSA) bzw. im Lauf-Ordner (CORR) <code>ai_bericht.docx</code> und <code>ai_bericht.pdf</code> erstellt. Nach jeweils 5 KI-Anfragen erscheint ein Dialog zur 1-Minuten-Pause.</p>
+
+    {% if not ai_reports_enabled %}
+
+    <p class="hint">KI-Berichte erzeugen: <code>TSLAB_AI_REPORTS_ENABLED=1</code> in <code>.env</code>,
+
+      <code>OPENAI_API_KEY</code> bzw. <code>GEMINI_API_KEY</code> setzen, Web neu starten.</p>
+
+    {% endif %}
+
+    <p class="hint">Standard: <strong>Ohne KI</strong>. Verfügbare Modelle: GPT-4o mini, GPT-5 mini, GPT-5 nano, Gemini.
+
+      Bei Modellwahl werden nach dem Lauf je TSA-Modellordner z.&nbsp;B.
+
+      <code>TSA_Modell_Bericht_ARMA11_GPT-5-nano.docx</code> / <code>.pdf</code>,
+
+      fuer Korrelation <code>CORR_AI_Bericht_GPT-4o-mini.pdf</code>,
+
+      bei mehreren TSA-Modellen zusaetzlich <code>Reports/Modellvergleich_…</code>
+
+      und <code>Reports/laufbericht.pdf</code>.
+
+      Nach jeweils 5 KI-Anfragen erscheint ein Dialog zur 1-Minuten-Pause.</p>
+
   </div>
-  {% else %}
-  <p class="hint">KI-Berichte: <code>TSLAB_AI_REPORTS_ENABLED=1</code> und <code>OPENAI_API_KEY</code> in <code>.env</code> setzen, dann Web neu starten.</p>
-  {% endif %}
+
 </section>

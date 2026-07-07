@@ -242,14 +242,14 @@ python scripts/run_web.py --no-mock-fallback
 
 Alternativ koennen die Werte in einer lokalen `.env` oder in
 `config/defaults.yaml` gesetzt werden; API-Keys nicht committen. Die
-verfuegbaren Modelle kommen aus `ai_reports.models`. Aktuell ist OpenAI
-implementiert (`openai:gpt-4o-mini`, `openai:gpt-4o`); Gemini ist vorbereitet,
-aber im Provider noch nicht implementiert.
+verfuegbaren Modelle kommen aus `ai_reports.models` (GPT-4o mini, GPT-5 mini,
+GPT-5 nano, Gemini). OpenAI ist implementiert; Gemini ist in der Auswahl
+enthalten, der Provider wird noch ergaenzt.
 
 Workflow:
 
-1. In Korrelation oder TSA im Abschnitt "KI-Bericht (optional)" ein Modell
-   waehlen.
+1. In Korrelation oder TSA im Abschnitt "KI-Bericht (optional)" waehlen:
+   **Kein KI** (Standard) oder eines der vier KI-Modelle.
 2. Der Analyse-Lauf schreibt zuerst die normalen Artefakte in `output/`.
 3. Danach erzeugt die Report-Session KI-Auswertungen aus PNG, TXT und
    Tabellen. Bei TSA wird je Modellordner ein Bericht erstellt.
@@ -265,8 +265,9 @@ Artefakte:
 
 Troubleshooting:
 
-- Keine Modelloption sichtbar: `TSLAB_AI_REPORTS_ENABLED=1` und
-  `OPENAI_API_KEY` pruefen, Web neu starten.
+- Keine Modelloption sichtbar: `TSLAB_AI_REPORTS_ENABLED=1` pruefen, Web neu
+  starten. OpenAI-Modelle benoetigen `OPENAI_API_KEY`, Gemini `GEMINI_API_KEY`
+  (ohne Key erscheinen Optionen ausgegraut).
 - "Keine Berichtsziele": Der Zielordner enthaelt keine passenden PNG/TXT/
   Tabellenartefakte.
 - Rate-Limit-Dialog: "Pause" wartet 60 Sekunden und setzt den Checkpoint

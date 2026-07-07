@@ -8,6 +8,7 @@ from pathlib import Path
 
 from tslab.services.report_session import (
     CHECKPOINT_CALLS,
+    _build_tsa_comparison_target,
     discover_report_targets,
     list_tsa_model_dirs,
     prepare_report_session,
@@ -35,6 +36,25 @@ class ReportSessionDiscoveryTests(unittest.TestCase):
                 (d / "plot.png").write_bytes(b"png")
             targets = discover_report_targets(root, run_type="TSA", analysis_mode="extended")
             self.assertEqual(len(targets), 2)
+
+    def test_tsa_comparison_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for name in ("arma11", "garch11"):
+                d = root / name
+                d.mkdir()
+                (d / "summary.txt").write_text(f"summary {name}", encoding="utf-8")
+            model_dirs = list_tsa_model_dirs(root)
+            cmp_target = _build_tsa_comparison_target(
+                root, model_dirs, ai_suffix="GPT-4o-mini"
+            )
+            self.assertIsNotNone(cmp_target)
+            assert cmp_target is not None
+            self.assertEqual(cmp_target.rel_path, "Reports")
+            self.assertEqual(
+                cmp_target.output_basename, "Modellvergleich_GPT-4o-mini.docx"
+            )
+            self.assertEqual(len(cmp_target.tasks), 2)
 
     def test_prepare_session_disabled(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

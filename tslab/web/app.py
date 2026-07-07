@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from uuid import uuid4
 
 from flask import Flask, jsonify, render_template, request, send_file
 
@@ -15,6 +16,7 @@ from tslab.services.order_selection import order_table_rows
 from tslab.web.perf import configure_perf_logging
 
 _WEB_ROOT = Path(__file__).resolve().parent
+APP_BOOT_ID = uuid4().hex
 
 
 def create_app(*, use_mock: bool = False) -> Flask:
@@ -420,6 +422,11 @@ def create_app(*, use_mock: bool = False) -> Flask:
                 "database_kind": backend.database_kind,
             }
         )
+
+    @app.get("/api/app-session")
+    def api_app_session():
+        """Boot-ID wechselt bei Server-Neustart — Formular-Session wird dann zurückgesetzt."""
+        return jsonify({"boot_id": APP_BOOT_ID})
 
     @app.get("/api/categories")
     def api_categories():

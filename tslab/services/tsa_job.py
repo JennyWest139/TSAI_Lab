@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+import time
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from sqlalchemy.orm import Session
 
@@ -27,6 +31,7 @@ from tslab.services.models_garch import (
     forecast_garch,
     fit_arma_garch,
     fit_garch,
+    parse_quantiles,
 )
 from tslab.services.residual_diagnostics import (
     ResidualDiagnosticResults,
@@ -48,12 +53,23 @@ from tslab.services.tsa_context import TSAContext, load_tsa_context
 
 
 @dataclass(frozen=True)
+class ModelRunTiming:
+    model_key: str
+    folder: str
+    duration_ms: float
+    started_at: datetime
+    ended_at: datetime
+    details: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class TsaJobResult:
     output_dir: Path
     context: TSAContext
     models_run: list[str]
     series_slug: str
     history_id: int | None = None
+    model_timings: tuple[ModelRunTiming, ...] = ()
 
 
 def _level_context_kwargs(ctx: TSAContext, plot_window: ForecastPlotWindow) -> dict:
@@ -109,7 +125,12 @@ def _std_residual_display(display: SeriesDisplay, model_label: str) -> SeriesDis
 
 
 def _run_arma(
-    ctx: TSAContext, out: Path, p: int, q: int, plot_window: ForecastPlotWindow
+    ctx: TSAContext,
+    out: Path,
+    p: int,
+    q: int,
+    plot_window: ForecastPlotWindow,
+    quantiles: tuple[float, ...] = DEFAULT_QUANTILES,
 ) -> None:
     train_lr = ctx.train_lr
     res, fitted = fit_arma(train_lr, order=(p, q))
@@ -144,14 +165,16 @@ def _run_arma(
     title_base = f"{model_label} – {ctx.study.analysis_label} [{ctx.mode_config.slug}]"
 
     def _fc_factory(steps: int, index) -> object:
-        return arma_volatility_forecast(res, steps=steps, index=index)
+        return arma_volatility_forecast(res, steps=steps, index=index, quantiles=quantiles)
 
     fwd_factory = None
     if not ctx.holdout_lr.empty:
         res_fwd, _ = fit_arma(ctx.forward_train_lr, order=(p, q))
 
         def _fwd_factory(steps: int, index) -> object:
-            return arma_volatility_forecast(res_fwd, steps=steps, index=index)
+            return arma_volatility_forecast(
+                res_fwd, steps=steps, index=index, quantiles=quantiles
+            )
 
         fwd_factory = _fwd_factory
 
@@ -177,6 +200,7 @@ def _run_arma(
         f"Cutoff: {ctx.study.cutoff.date()}",
         f"Training (Renditen): {len(train_lr)}",
         f"Holdout Monate: {len(ctx.holdout_lr)}",
+        f"Quantile: {list(quantiles)}",
         "",
         str(res.summary()),
         "",
@@ -188,7 +212,13 @@ def _run_arma(
 
 
 def _run_garch(
-    ctx: TSAContext, out: Path, p: int, q: int, plot_window: ForecastPlotWindow
+    ctx: TSAContext,
+    out: Path,
+    p: int,
+    q: int,
+    plot_window: ForecastPlotWindow,
+    *,
+    quantiles: tuple[float, ...] = DEFAULT_QUANTILES,
 ) -> None:
     train_lr = ctx.train_lr
     fit = fit_garch(train_lr, ctx.mode_config, p=p, q=q)
@@ -224,7 +254,7 @@ def _run_garch(
 
     def _fc_factory(steps: int, index) -> object:
         return forecast_garch(
-            fit, steps=steps, index=index, quantiles=DEFAULT_QUANTILES
+            fit, steps=steps, index=index, quantiles=quantiles
         )
 
     fwd_factory = None
@@ -233,7 +263,7 @@ def _run_garch(
 
         def _fwd_factory(steps: int, index) -> object:
             return forecast_garch(
-                fit_fwd, steps=steps, index=index, quantiles=DEFAULT_QUANTILES
+                fit_fwd, steps=steps, index=index, quantiles=quantiles
             )
 
         fwd_factory = _fwd_factory
@@ -260,7 +290,7 @@ def _run_garch(
         + ")",
         f"Analyse: {ctx.study.analysis_label}",
         f"AIC: {fit.aic:.2f}",
-        f"Quantile: {list(DEFAULT_QUANTILES)}",
+        f"Quantile: {list(quantiles)}",
         "",
         str(fit.result.summary()),
         "",
@@ -279,6 +309,8 @@ def _run_arma_garch(
     garch_p: int,
     garch_q: int,
     plot_window: ForecastPlotWindow,
+    *,
+    quantiles: tuple[float, ...] = DEFAULT_QUANTILES,
 ) -> None:
     train_lr = ctx.train_lr
     fit = fit_arma_garch(
@@ -327,7 +359,7 @@ def _run_arma_garch(
             train_lr,
             fit.arma_fitted,
             model_dir,
-            f"{tag}_arma",
+            f"{tag}_fit",
             display,
             arma_resid_display,
             model_label=f"ARMA({arma_p},{arma_q})",
@@ -359,7 +391,7 @@ def _run_arma_garch(
 
     def _fc_factory(steps: int, index) -> object:
         return forecast_arma_garch(
-            fit, steps=steps, index=index, quantiles=DEFAULT_QUANTILES
+            fit, steps=steps, index=index, quantiles=quantiles
         )
 
     fwd_factory = None
@@ -374,7 +406,7 @@ def _run_arma_garch(
 
         def _fwd_factory(steps: int, index) -> object:
             return forecast_arma_garch(
-                fit_fwd, steps=steps, index=index, quantiles=DEFAULT_QUANTILES
+                fit_fwd, steps=steps, index=index, quantiles=quantiles
             )
 
         fwd_factory = _fwd_factory
@@ -490,6 +522,29 @@ def _normalize_models(models: set[str] | list[str] | None) -> set[str]:
     return {str(m).strip().lower() for m in models if str(m).strip()}
 
 
+def _timed_model_run(
+    timings: list[ModelRunTiming],
+    *,
+    model_key: str,
+    folder: str,
+    details: dict[str, Any],
+    fn: Callable[[], None],
+) -> None:
+    started_at = datetime.now(timezone.utc)
+    t0 = time.perf_counter()
+    fn()
+    timings.append(
+        ModelRunTiming(
+            model_key=model_key,
+            folder=folder,
+            duration_ms=(time.perf_counter() - t0) * 1000.0,
+            started_at=started_at,
+            ended_at=datetime.now(timezone.utc),
+            details=details,
+        )
+    )
+
+
 def run_tsa_job(
     session: Session,
     mode_config: AnalysisModeConfig,
@@ -508,10 +563,12 @@ def run_tsa_job(
     output_root: Path | None = None,
     run_coefficient_abgleich: bool = True,
     save_history: bool = True,
+    quantiles: tuple[float, ...] | None = None,
 ) -> TsaJobResult:
     """Fuehrt TSA aus und schreibt Output-Artefakte."""
     model_set = _normalize_models(models)
     eff_window = plot_window or ForecastPlotWindow.from_defaults()
+    eff_quantiles = quantiles or DEFAULT_QUANTILES
 
     ctx = load_tsa_context(
         session,
@@ -545,20 +602,61 @@ def run_tsa_job(
     out.mkdir(parents=True, exist_ok=True)
 
     models_run: list[str] = []
+    timings: list[ModelRunTiming] = []
     if "decomp-additive" in model_set or "decomp_additive" in model_set:
-        _run_decomposition(ctx, out, model="additive", series_slug=series_slug)
+        _timed_model_run(
+            timings,
+            model_key="decomp-additive",
+            folder="decomp_additive",
+            details={"type": "additive"},
+            fn=lambda: _run_decomposition(ctx, out, model="additive", series_slug=series_slug),
+        )
         models_run.append("decomp-additive")
     if "decomp-multiplicative" in model_set or "decomp_multiplicative" in model_set:
-        _run_decomposition(ctx, out, model="multiplicative", series_slug=series_slug)
+        _timed_model_run(
+            timings,
+            model_key="decomp-multiplicative",
+            folder="decomp_multiplicative",
+            details={"type": "multiplicative"},
+            fn=lambda: _run_decomposition(ctx, out, model="multiplicative", series_slug=series_slug),
+        )
         models_run.append("decomp-multiplicative")
     if "arma" in model_set:
-        _run_arma(ctx, out, arma_p, arma_q, eff_window)
+        arma_folder = f"arma{arma_p}{arma_q}"
+        _timed_model_run(
+            timings,
+            model_key="arma",
+            folder=arma_folder,
+            details={"p": arma_p, "q": arma_q},
+            fn=lambda: _run_arma(ctx, out, arma_p, arma_q, eff_window, quantiles=eff_quantiles),
+        )
         models_run.append("arma")
     if "garch" in model_set:
-        _run_garch(ctx, out, garch_p, garch_q, eff_window)
+        garch_folder = f"garch{garch_p}{garch_q}"
+        _timed_model_run(
+            timings,
+            model_key="garch",
+            folder=garch_folder,
+            details={"p": garch_p, "q": garch_q},
+            fn=lambda: _run_garch(ctx, out, garch_p, garch_q, eff_window, quantiles=eff_quantiles),
+        )
         models_run.append("garch")
     if "arma-garch" in model_set or "arma_garch" in model_set:
-        _run_arma_garch(ctx, out, arma_p, arma_q, garch_p, garch_q, eff_window)
+        ag_folder = f"arma{arma_p}{arma_q}_garch{garch_p}{garch_q}"
+        _timed_model_run(
+            timings,
+            model_key="arma-garch",
+            folder=ag_folder,
+            details={
+                "arma_p": arma_p,
+                "arma_q": arma_q,
+                "garch_p": garch_p,
+                "garch_q": garch_q,
+            },
+            fn=lambda: _run_arma_garch(
+                ctx, out, arma_p, arma_q, garch_p, garch_q, eff_window, quantiles=eff_quantiles
+            ),
+        )
         models_run.append("arma-garch")
 
     if run_coefficient_abgleich:
@@ -612,6 +710,7 @@ def run_tsa_job(
         models_run=models_run,
         series_slug=series_slug,
         history_id=history_id,
+        model_timings=tuple(timings),
     )
 
 

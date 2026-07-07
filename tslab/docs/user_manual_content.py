@@ -13,7 +13,7 @@ class ManualSection:
 
 MANUAL_TITLE = "TSLab Benutzerhandbuch"
 MANUAL_SUBTITLE = "Zeitreihenanalyse · Diplomarbeit JW 2008 · Version 1.0"
-MANUAL_VERSION = "2026-06"
+MANUAL_VERSION = "2026-07"
 
 
 SECTIONS: list[ManualSection] = [
@@ -55,7 +55,8 @@ Schritt 4 — Time Series Analysis (TSA)
   • Modell(e) ankreuzen → „TSA starten“
 
 Optional — KI-Bericht
-  • Modell im Abschnitt „KI-Bericht (optional)“ wählen
+  • Standard: Ohne KI (nur Analyse-Lauf)
+  • Alternativ eines von vier Modellen: GPT-4o mini, GPT-5 mini, GPT-5 nano, Gemini
   • Bei Pausendialog: 1 Minute warten oder Bericht vorzeitig abschließen
         """.strip(),
     ),
@@ -96,7 +97,7 @@ damit Sie Datenqualität und Trends erkennen.
 
 Ergebnisplots: Balkendiagramm der Lags, aligned_series.png mit
 Originalwerten und Trends, lag_correlations.csv. Wenn ein KI-Modell gewählt
-wurde, entstehen zusätzlich ai_bericht.docx und ai_bericht.pdf im Laufordner.
+wurde, entstehen zusätzlich CORR_Bericht_<KI-Modell>.docx/.pdf im Laufordner.
         """.strip(),
     ),
     ManualSection(
@@ -106,17 +107,75 @@ Modelle: ARMA, GARCH, ARMA-GARCH. Die Ordnung kann automatisch per AIC
 gewählt werden oder als User-Order (p, q) für ARMA und GARCH.
 
 Analysemodus thesis: Stichprobe ab 12/1987, kontinuierliche Renditen
-ohne lineares Detrending (Diplomarbeit).
+ohne lineares Detrending (Diplomarbeit). Ausführlich: Kapitel 7.
+
+Analysemodus extended: volle Historie, lineare Trendentfernung auf Renditen,
+zweistufiges ARMA-GARCH. Ausführlich: Kapitel 7.
 
 Training endet am Cutoff-Datum; Prognose bis forecast_end.
 Output je Modellordner: Residuen-Diagnostik, Prognoseplots mit
 Quantilbändern, Niveau-Rücktransformation, summary.txt und bei thesis
 coefficient_abgleich.txt. Wenn ein KI-Modell gewählt wurde, entstehen
-ai_bericht.docx und ai_bericht.pdf je Modellordner.
+TSA_Bericht_<MODELL>_<KI-Modell>.docx/.pdf je Modellordner.
         """.strip(),
     ),
     ManualSection(
-        title="7. Histogramme und Diagnostik",
+        title="7. Analysemodus — thesis und extended",
+        body="""
+In Korrelation und TSA wählen Sie oben den Analysemodus. Es handelt sich nicht um
+zwei verschiedene Modellfamilien, sondern um zwei methodische Setups: thesis
+repliziert die Diplomarbeit JW 2008 (R); extended nutzt eine längere Historie
+und eine modernere Vorverarbeitung der Renditen.
+
+Gemeinsame Basis — kontinuierliche Renditen
+Beide Modi starten von Kursniveaus P_t (z. B. PDAX). Für Schätzung und
+Korrelation werden Renditen verwendet:
+  r_t = ln(P_t) − ln(P_{t−1})
+
+Thesis — Renditen ohne lineares Detrending
+  • Die Modellserie ist y_t = r_t (reine Log-Rendite).
+  • Standard-Stichprobe: Dezember 1987 bis Juli 2007 (wie Diplomarbeit).
+  • GARCH: Renditen werden vor der Schätzung um den Stichprobenmittelwert
+    zentriert (y_t − ȳ); das GARCH-Modell hat Mittelwert Null.
+  • ARMA-GARCH: gemeinsame Schätzung in einem Modell (AR-Mittelwert +
+    GARCH-Volatilität), analog zu R rugarch mit arma(1,1)+garch(1,1).
+  • coefficient_abgleich.txt und KI-Kapitel zum R-Abgleich nur im Modus thesis.
+
+Extended — Renditen mit linearer Trendentfernung
+  • Zuerst r_t wie oben, dann lineare Regression über die Zeit:
+    r_t = α + β·t + ε_t. Die Modellserie ist das Residuum ε̂_t
+    (Trend aus den Renditen entfernt).
+  • Standard: volle verfügbare Historie der Zeitreihe (Von/Bis im UI
+    schränkt weiter ein).
+  • GARCH: ohne Vorab-Zentrierung der Renditen.
+  • ARMA-GARCH: zweistufig — zuerst ARMA auf den Renditen, dann GARCH auf
+    die ARMA-Residuen (nicht identisch mit der Diplomarbeitsschätzung).
+
+Mathematisch — ARMA und GARCH (kurz)
+ARMA(p,q) für den bedingten Mittelwert:
+  φ(L)(y_t − μ) = θ(L) ε_t
+GARCH(p,q) für die bedingte Varianz:
+  σ_t² = ω + α ε_{t−1}² + β σ_{t−1}²
+Im thesis-Modus wird bei reinem GARCH oft μ separat über ȳ behandelt; bei
+ARMA-GARCH wird der Mittelwert im gemeinsamen arch-Modell mitgeschätzt.
+
+Kreuzkorrelation (CORR)
+Die Vorschau zeigt Kursniveaus und Trends. Die Berechnung der Lags verwendet
+die transformierten Renditen gemäß Modus (thesis: r_t, extended: ε̂_t).
+Pearson-Korrelation zwischen A(t) und B(t+h) bleibt gleich — geändert wird
+nur die zugrunde liegende Serie.
+
+Wann welchen Modus?
+  • thesis — Vergleich mit Diplomarbeit, R-Koeffizienten, gleiche Stichprobe
+  • extended — längere Daten, strukturelle Drifts in Renditen ausgleichen,
+    zweistufiges ARMA-GARCH bei vielen Beobachtungen
+
+Der Schalter steht in den Formularen „Korrelation“ und „TSA“ als
+„Analysemodus“ (thesis / extended).
+        """.strip(),
+    ),
+    ManualSection(
+        title="8. Histogramme und Diagnostik",
         body="""
 Histogramme in Phase 0 und bei Residuen enthalten eine eingezeichnete
 Normalverteilungskurve (orange): gleicher Mittelwert und Standardabweichung
@@ -127,7 +186,7 @@ Schiefe, Ausreißer oder multimodale Verteilungen hin — wichtig vor GARCH.
         """.strip(),
     ),
     ManualSection(
-        title="8. Output, Tags und KI-Berichte",
+        title="9. Output, Tags und KI-Berichte",
         body="""
 Output-Browser
   • Menü „Output“ oder Link aus einer Historie öffnen
@@ -141,13 +200,25 @@ Tags
 
 KI-Berichte aktivieren
   • TSLAB_AI_REPORTS_ENABLED=1 setzen
-  • OPENAI_API_KEY setzen und Web neu starten
-  • Modelle: openai:gpt-4o-mini oder openai:gpt-4o (Gemini ist vorbereitet,
-    aber noch nicht implementiert)
+  • OPENAI_API_KEY für GPT-4o mini, GPT-5 mini und GPT-5 nano
+  • GEMINI_API_KEY für Gemini (Provider noch in Entwicklung)
+  • Web neu starten
+
+Modellauswahl (5 Optionen im Formular)
+  • Ohne KI — Standard, kein Word/PDF-Bericht
+  • GPT-4o mini — OpenAI, Vision für Grafiken
+  • GPT-5 mini — OpenAI, Vision für Grafiken
+  • GPT-5 nano — OpenAI, Vision für Grafiken
+  • Gemini — Google (API-Key erforderlich; Auswahl sichtbar auch ohne Key)
+
+Ohne passenden API-Key erscheint das Modell ausgegraut („API-Key fehlt“).
 
 Ablauf
   • Der Analyse-Lauf schreibt zuerst normale Artefakte in output/
-  • Danach wertet die Report-Session PNG, TXT und Tabellen aus
+  • Pro TSA-Modellordner: TSA_Bericht_<MODELL>_<KI>.docx/.pdf; Korrelation: CORR_Bericht_<KI>.docx/.pdf;
+    bei mehreren TSA-Modellen zusaetzlich Reports/Modellvergleich_<KI>.docx/.pdf
+  • Aufbau: Executive Summary (Eignung Ja/Nein/Beschränkt, Qualität 1–5), fachliche Auswertung,
+    eingebettete Grafiken, Anhang mit summary.txt
   • Nach jeweils 5 KI-Anfragen oder bei Rate-Limits erscheint ein Dialog:
     1 Minute warten oder vorzeitig abschließen
   • Reports/laufbericht.pdf enthält Laufzeiten, Token, Langfuse-Status,
@@ -209,10 +280,19 @@ GLOSSARY: list[ManualSection] = [
         "Die Trendlinie in den Web-Grafiken stammt aus seasonal_decompose.",
     ),
     ManualSection(
-        title="thesis vs. extended",
-        body="thesis: Parameter und Stichprobe wie Diplomarbeit JW 2008. "
-        "extended: längere Historie, lineare Trendentfernung auf Renditen, "
-        "zweistufiges ARMA-GARCH.",
+        title="Analysemodus (thesis / extended)",
+        body="Zentraler UI-Schalter für Korrelation und TSA. thesis = Diplomarbeit "
+        "JW 2008: feste Stichprobe ab 12/1987, y_t = Δ ln P_t, zentrierte "
+        "GARCH-Renditen, gemeinsames ARMA-GARCH. extended = längere Historie, "
+        "lineare Detrending auf Renditen, zweistufiges ARMA-GARCH. "
+        "Ausführlich im Handbuch Kapitel 7.",
+    ),
+    ManualSection(
+        title="KI-Bericht — Modellauswahl",
+        body="Fünf Optionen in Korrelation und TSA: (1) Ohne KI — Standard. "
+        "(2) GPT-4o mini, (3) GPT-5 mini, (4) GPT-5 nano über OPENAI_API_KEY. "
+        "(5) Gemini über GEMINI_API_KEY. OpenAI-Modelle analysieren PNG-Grafiken "
+        "per Vision; Gemini ist konfiguriert, der Provider wird noch ergänzt.",
     ),
     ManualSection(
         title="Volatilität (bedingt)",

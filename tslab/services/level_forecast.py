@@ -121,15 +121,16 @@ def write_level_forecast_table(
 ) -> Path:
     """Excel: Datum, Punktprognose, Quantile, optional Ist-Niveau."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    rows: dict[str, pd.Series] = {
-        "date": pd.Series(level_fc.index),
-        "prognose_mittelwert": level_fc.mean.reindex(level_fc.index),
+    idx = pd.DatetimeIndex(pd.to_datetime(level_fc.index)).normalize()
+    rows: dict[str, object] = {
+        "date": idx.strftime("%Y-%m-%d"),
+        "prognose_mittelwert": level_fc.mean.reindex(idx).to_numpy(),
     }
     for q, series in sorted(level_fc.quantiles.items()):
         label = f"quantil_{q:g}".replace(".", "_")
-        rows[label] = series.reindex(level_fc.index)
+        rows[label] = series.reindex(idx).to_numpy()
     if holdout_prices is not None and not holdout_prices.empty:
-        rows["ist_pdax"] = holdout_prices.reindex(level_fc.index)
+        rows["ist_pdax"] = holdout_prices.reindex(idx).to_numpy()
     df = pd.DataFrame(rows)
     return write_dataframe_excel(df, path, sheet_name="Prognose")
 

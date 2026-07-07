@@ -12,9 +12,37 @@ from scipy import stats
 from tslab.services.analysis_mode import AnalysisModeConfig, prepare_garch_input
 from tslab.services.models_ar import _with_monthly_freq
 from tslab.services.models_arma import fit_arma
+from tslab.services.stats_fit import suppress_optimizer_warnings
 
 DEFAULT_QUANTILES = (0.005, 0.05, 0.5, 0.95, 0.995)
 GARCH_SCALE = 100.0
+
+
+def _fit_arch(model: object, **kwargs: object) -> object:
+    with suppress_optimizer_warnings():
+        return model.fit(**kwargs)
+
+
+def parse_quantiles(value: object) -> tuple[float, ...]:
+    """Quantile aus UI/API (Komma-Liste) oder Default."""
+    if value is None or value == "":
+        return DEFAULT_QUANTILES
+    if isinstance(value, (list, tuple)):
+        raw = list(value)
+    else:
+        raw = str(value).replace(";", ",").split(",")
+    out: list[float] = []
+    for item in raw:
+        text = str(item).strip()
+        if not text:
+            continue
+        q = float(text.replace(",", "."))
+        if not 0.0 < q < 1.0:
+            raise ValueError(f"Quantil muss strikt zwischen 0 und 1 liegen: {q}")
+        out.append(q)
+    if not out:
+        return DEFAULT_QUANTILES
+    return tuple(sorted(set(out)))
 
 
 @dataclass(frozen=True)
@@ -89,7 +117,7 @@ def fit_garch_rugarch_style(
         dist=dist,
         rescale=False,
     )
-    res = model.fit(disp="off")
+    res = _fit_arch(model, disp="off")
     cond_vol = pd.Series(
         res.conditional_volatility / scale,
         index=clean.index,
@@ -129,7 +157,7 @@ def fit_garch(
         dist=dist,
         rescale=False,
     )
-    res = model.fit(disp="off")
+    res = _fit_arch(model, disp="off")
     cond_vol = pd.Series(
         res.conditional_volatility / scale,
         index=clean.index,
@@ -204,7 +232,7 @@ def _fit_arma_garch_joint(
         dist=dist,
         rescale=False,
     )
-    res = model.fit(disp="off", update_freq=0)
+    res = _fit_arch(model, disp="off", update_freq=0)
     cond_vol = pd.Series(
         res.conditional_volatility / scale,
         index=clean.index,

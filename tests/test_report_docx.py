@@ -21,7 +21,7 @@ class ReportDocxTests(unittest.TestCase):
                 out,
                 title="Test TSLab",
                 subtitle="Ordner: test_run",
-                summary="Kurze Zusammenfassung.",
+                summary="Kurze Executive Summary.",
                 text_sections=[("stats.txt", "r = 0.85")],
                 image_sections=[],
                 model_label="OpenAI GPT-4o mini",
@@ -30,9 +30,34 @@ class ReportDocxTests(unittest.TestCase):
             doc = Document(out)
             text = "\n".join(p.text for p in doc.paragraphs)
             self.assertIn("Test TSLab", text)
-            self.assertIn("Kurze Zusammenfassung", text)
+            self.assertIn("Executive Summary", text)
             self.assertIn("stats.txt", text)
             self.assertIn("r = 0.85", text)
+
+    def test_tsa_model_layout_sections(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "TSA_Modell_Bericht_ARMA11_test.docx"
+            build_run_report_docx(
+                out,
+                title="TSA Modell arma11",
+                subtitle="Ordner: arma11",
+                summary="",
+                text_sections=[],
+                image_sections=[],
+                model_label="GPT-5 nano",
+                layout="tsa_model",
+                numbered_sections=[
+                    ("1. Management Summary", "Summary text."),
+                    ("2. Introduction of the TSA", "Intro text."),
+                    ("6. Conclusion", "Done."),
+                ],
+            )
+            doc = Document(out)
+            text = "\n".join(p.text for p in doc.paragraphs)
+            self.assertIn("Management Summary", text)
+            self.assertIn("Introduction of the TSA", text)
+            self.assertIn("Conclusion", text)
+            self.assertNotIn("Executive Summary", text)
 
 
 class GenerateRunReportTests(unittest.TestCase):
