@@ -32,22 +32,45 @@
 
     {% endif %}
 
+    {% if report_kind == 'corr' %}
+
     <p class="hint">Standard: <strong>Ohne KI</strong>. OpenAI: GPT-4o mini, GPT-5 mini, GPT-5 nano.
+
       Gemini (günstiger zuerst): 3.1 Flash Lite, 2.5 Flash Lite, 2.5 Flash.
 
-      Bei Modellwahl werden nach dem Lauf je TSA-Modellordner z.&nbsp;B.
+      Bei Modellwahl erzeugt TSLab nach dem Korrelationslauf einen KI-Bericht zum Lauf, z.&nbsp;B.
 
-      <code>TSA_Modell_Bericht_ARMA11_GPT-5-nano.docx</code> / <code>.pdf</code>,
+      <code>CORR_AI_Bericht_GPT-4o-mini.docx</code> / <code>.pdf</code> im Output-Ordner,
 
-      fuer Korrelation <code>CORR_AI_Bericht_GPT-4o-mini.pdf</code>,
-
-      bei mehreren TSA-Modellen zusaetzlich <code>Reports/Modellvergleich_…</code>,
-
-      <code>Reports/prep_laufbericht.pdf</code> (sofort nach dem Lauf) und
+      dazu <code>Reports/prep_laufbericht.pdf</code> (sofort) und
 
       <code>Reports/laufbericht.pdf</code> (final nach KI).
 
       Nach jeweils 5 KI-Anfragen erscheint ein Dialog zur 1-Minuten-Pause.</p>
+
+    {% elif report_kind == 'tsa' %}
+
+    <p class="hint">Standard: <strong>Ohne KI</strong>. OpenAI: GPT-4o mini, GPT-5 mini, GPT-5 nano.
+
+      Gemini (günstiger zuerst): 3.1 Flash Lite, 2.5 Flash Lite, 2.5 Flash.
+
+      Bei Modellwahl werden nach dem TSA-Lauf je gewähltem Modellordner z.&nbsp;B.
+
+      <code>TSA_Modell_Bericht_ARMA11_GPT-5-nano.docx</code> / <code>.pdf</code> erzeugt;
+
+      bei mehreren TSA-Modellen zusätzlich <code>Reports/Modellvergleich_…</code>.
+
+      Dazu <code>Reports/prep_laufbericht.pdf</code> (sofort nach dem Lauf) und
+
+      <code>Reports/laufbericht.pdf</code> (final nach KI).
+
+      Nach jeweils 5 KI-Anfragen erscheint ein Dialog zur 1-Minuten-Pause.</p>
+
+    {% else %}
+
+    <p class="hint">Standard: <strong>Ohne KI</strong>. Wählen Sie ein Modell für automatische Berichte nach dem Lauf.</p>
+
+    {% endif %}
 
   </div>
 

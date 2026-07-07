@@ -143,23 +143,9 @@
     </div>
   </section>
 
-  {% with form_prefix='tsa', section_title='5 · KI-Bericht (optional)' %}
+  {% with form_prefix='tsa', section_title='5 · KI-Bericht (optional)', report_kind='tsa' %}
   {% include '_ai_report_section.html' %}
   {% endwith %}
-
-  <section class="card card-muted">
-    <h2>6 · Ergebnis (später)</h2>
-    <ul class="hint-list">
-      <li>PNG: Prognose Abgleich / Forward, Residuen, Niveau-Rücktransformation</li>
-      <li>Interaktive HTML-Charts (Hover-Werte) — Platzhalter vorbereitet</li>
-      <li>Bericht PDF/Word, Excel mit Quantilen, DB-Export — nach Modellwahl</li>
-    </ul>
-    <div class="preview-strip">
-      <div class="preview-thumb">forecast_abgleich.png</div>
-      <div class="preview-thumb">cross_correlation.png</div>
-      <div class="preview-thumb">residuals_acf.png</div>
-    </div>
-  </section>
 
   <div class="form-actions">
     <button type="submit" class="btn btn-primary btn-lg">TSA starten</button>

@@ -310,8 +310,9 @@ class ReportSessionState:
         )
 
 
-def session_path_for(output_root: Path) -> Path:
-    reports = output_root / "Reports"
+def session_path_for(output_root: str | Path) -> Path:
+    root = output_root if isinstance(output_root, Path) else Path(output_root)
+    reports = root / "Reports"
     reports.mkdir(parents=True, exist_ok=True)
     return reports / SESSION_BASENAME
 
@@ -331,7 +332,7 @@ def _effective_max_tokens(config: Any, spec: Any, *, base: int | None = None) ->
     return max_tok
 
 
-def load_session(output_root: Path) -> ReportSessionState | None:
+def load_session(output_root: str | Path) -> ReportSessionState | None:
     path = session_path_for(output_root)
     if not path.is_file():
         return None
@@ -339,13 +340,13 @@ def load_session(output_root: Path) -> ReportSessionState | None:
     return ReportSessionState.from_dict(data)
 
 
-def save_session(state: ReportSessionState, output_root: Path) -> Path:
+def save_session(state: ReportSessionState, output_root: str | Path) -> Path:
     path = session_path_for(output_root)
     path.write_text(json.dumps(state.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
     return path
 
 
-def delete_session(output_root: Path) -> None:
+def delete_session(output_root: str | Path) -> None:
     path = session_path_for(output_root)
     if path.is_file():
         path.unlink()
