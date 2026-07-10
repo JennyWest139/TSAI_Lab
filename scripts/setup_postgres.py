@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-PostgreSQL fuer TSLab vorbereiten (User + DB) und Werte.csv importieren.
+PostgreSQL fuer TSAI_Lab vorbereiten (User + DB) und Werte.csv importieren.
 
 Voraussetzung: PostgreSQL-Dienst laeuft.
 

@@ -103,7 +103,7 @@ def build_user_manual_pdf(output_path: Path | None = None) -> Path:
         topMargin=2 * cm,
         bottomMargin=2 * cm,
         title=MANUAL_TITLE,
-        author="TSLab",
+        author="TSAI_Lab",
     )
     styles = _styles()
     story: list = []
@@ -130,7 +130,7 @@ def build_user_manual_pdf(output_path: Path | None = None) -> Path:
     story.append(_para(glossary_title, styles["h1"]))
     story.append(
         _para(
-            "Kurzdefinitionen für die Arbeit mit TSLab. Das Kapitel wird "
+            "Kurzdefinitionen für die Arbeit mit TSAI_Lab. Das Kapitel wird "
             "mit weiteren Begriffen ergänzt.",
             styles["body"],
         )

@@ -13,21 +13,22 @@
       } catch (e) {}
     })();
   </script>
-  <title>{% block title %}TSLab{% endblock %} · Zeitreihenanalyse</title>
+  <title>{% block title %}TSAI_Lab{% endblock %} · Zeitreihenanalyse</title>
+  <link rel="icon" type="image/png" href="{{ url_for('static', filename='img/tsai-lab-icon.png') }}">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}?v=12">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}?v=13">
   {% block head %}{% endblock %}
 </head>
 <body>
   <div class="app-shell">
     <aside class="sidebar" id="sidebar">
       <div class="brand">
-        <span class="brand-mark">TS</span>
+        <img class="brand-logo" src="{{ url_for('static', filename='img/tsai-lab-icon.png') }}" width="44" height="44" alt="TSAI_Lab Logo">
         <div>
-          <strong>TSLab</strong>
-          <small>Zeitreihen · Diplomarbeit</small>
+          <strong>TSAI_Lab</strong>
+          <small>Time Series AI · Lab</small>
         </div>
       </div>
       <nav class="nav">

@@ -1,4 +1,4 @@
-# Cursor TSLab
+# TSAI_Lab
 
 Zeitreihenanalyse nach Diplomarbeit JW 2008 (PDAX) – Python, PostgreSQL, später Flask-Dashboard.
 

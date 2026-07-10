@@ -1,5 +1,5 @@
 /**
- * TSLab Dashboard — Theme, Navigation, Workflows (Design v1 + unabhängige Von/Bis-Daten)
+ * TSAI_Lab Dashboard — Theme, Navigation, Workflows (Design v1 + unabhängige Von/Bis-Daten)
  */
 const TSLab = (() => {
   const STORAGE_THEME = "tslab-theme";
@@ -1616,3 +1616,4 @@ const TSLab = (() => {
     toast,
   };
 })();
+window.TSAI_Lab = TSLab;

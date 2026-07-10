@@ -1,4 +1,4 @@
-"""Inhalt des TSLab-Benutzerhandbuchs (wird zu PDF gebaut)."""
+"""Inhalt des TSAI_Lab-Benutzerhandbuchs (wird zu PDF gebaut)."""
 
 from __future__ import annotations
 
@@ -11,8 +11,8 @@ class ManualSection:
     body: str
 
 
-MANUAL_TITLE = "TSLab Benutzerhandbuch"
-MANUAL_SUBTITLE = "Zeitreihenanalyse · Diplomarbeit JW 2008 · Version 1.0"
+MANUAL_TITLE = "TSAI_Lab Benutzerhandbuch"
+MANUAL_SUBTITLE = "Zeitreihenanalyse · Time Series AI · Version 1.0"
 MANUAL_VERSION = "2026-07"
 
 
@@ -20,7 +20,7 @@ SECTIONS: list[ManualSection] = [
     ManualSection(
         title="1. Einleitung",
         body="""
-TSLab ist eine Arbeitsumgebung für die ökonometrische Analyse von Zeitreihen.
+TSAI_Lab ist eine Arbeitsumgebung für die ökonometrische Analyse von Zeitreihen.
 Sie unterstützt die Replikation und Erweiterung der Diplomarbeit JW 2008
 (PDAX, Kreuzkorrelation, ARMA/GARCH-Modelle).
 

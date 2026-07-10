@@ -1,4 +1,4 @@
-/* TSLab Dashboard — Light / Dark */
+/* TSAI_Lab Dashboard — Light / Dark */
 
 :root,
 [data-theme="light"] {
@@ -145,6 +145,15 @@ select option {
 
 .brand strong { color: var(--sidebar-active); display: block; font-size: 1.1rem; }
 .brand small { font-size: 0.75rem; opacity: 0.75; }
+
+.brand-logo {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  object-fit: contain;
+  flex-shrink: 0;
+  background: #fff;
+}
 
 .brand-mark {
   width: 40px;

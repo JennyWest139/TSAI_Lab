@@ -446,7 +446,7 @@ def discover_report_targets(
         model_dirs = list_tsa_model_dirs(run_path)
         if model_dirs:
             return [(d, f"TSA Modell {d.name}") for d in model_dirs]
-    return [(run_path, f"TSLab {run_type}-Bericht")]
+    return [(run_path, f"TSAI_Lab {run_type}-Bericht")]
 
 
 def _build_tsa_comparison_target(

@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-TSLab Web-Dashboard (Flask) — Standard: PostgreSQL.
+TSAI_Lab Web-Dashboard (Flask) — Standard: PostgreSQL.
 
   python scripts/prepare_web_postgres.py
   python scripts/run_web.py
@@ -24,7 +24,7 @@ from tslab.web import create_app
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="TSLab Flask-Dashboard (PostgreSQL)")
+    parser = argparse.ArgumentParser(description="TSAI_Lab Flask-Dashboard (PostgreSQL)")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=5000)
     parser.add_argument("--debug", action="store_true")
@@ -60,7 +60,7 @@ def main() -> None:
         )
         print("  .venv\\Scripts\\python.exe -m pip install google-genai")
 
-    print(f"TSLab UI: http://{args.host}:{args.port}/")
+    print(f"TSAI_Lab UI: http://{args.host}:{args.port}/")
     print(f"Backend: {backend.mode_label}")
     if not args.mock and backend.database_url:
         print(f"URL: {backend.database_url}")

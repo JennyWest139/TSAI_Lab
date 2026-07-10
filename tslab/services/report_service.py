@@ -373,5 +373,5 @@ def generate_object_report(
         output_dir,
         model_id=model_id,
         run_type=run_type,
-        title=f"TSLab {run_type}-Bericht ({entity_type} {entity_id})",
+        title=f"TSAI_Lab {run_type}-Bericht ({entity_type} {entity_id})",
     )

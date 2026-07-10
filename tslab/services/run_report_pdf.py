@@ -42,9 +42,9 @@ def write_run_report_pdf(
 
     is_prep = variant == "prep"
     title = (
-        f"TSLab Prep-Laufbericht — {telemetry.run_type}"
+        f"TSAI_Lab Prep-Laufbericht — {telemetry.run_type}"
         if is_prep
-        else f"TSLab Laufbericht — {telemetry.run_type}"
+        else f"TSAI_Lab Laufbericht — {telemetry.run_type}"
     )
     doc = SimpleDocTemplate(
         str(path),
