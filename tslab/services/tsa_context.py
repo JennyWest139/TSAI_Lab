@@ -36,6 +36,7 @@ class TSAContext:
     forecast_ctx: ForecastPlotData
     horizons: ForecastHorizons
     label: str
+    series_slug: str
 
 
 def load_tsa_context(
@@ -110,6 +111,7 @@ def load_tsa_context(
         forecast_ctx=forecast_ctx,
         horizons=horizons,
         label=label,
+        series_slug=series_slug,
     )
 
 
