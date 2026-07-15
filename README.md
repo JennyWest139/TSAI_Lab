@@ -210,9 +210,9 @@ Ohne erreichbare DB startet das Web-Dashboard nicht (kein Mock-Fallback).
 ### Tags, Suche und Ergebnisordner
 
 Die Web-Listen fuer Zeitreihen, Korrelationen und TSA-Laeufe unterstuetzen
-Suche und Tag-Filter. Tags sind n:m-Zuordnungen in `entity_categories`; neue
+Suche und Tag-Filter. Tags sind n:m-Zuordnungen in `entity_tag_links`; neue
 Analyse-Laeufe erben die Vereinigung der Tags ihrer beteiligten Zeitreihen.
-Die reservierte Kategorie `Reporting` markiert berichtsrelevante Eintraege und
+Der reservierte Tag `Reporting` markiert berichtsrelevante Eintraege und
 kann nicht geloescht werden.
 
 Ergebnisordner sind ueber `/output/browse/` erreichbar. Einzeldateien werden

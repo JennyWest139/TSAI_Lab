@@ -88,9 +88,9 @@ def create_app() -> Flask:
     @app.get("/tags")
     def tags_page():
         return render_template(
-            "categories.html",
+            "tags.html",
             page="tags",
-            categories=backend.list_categories(),
+            tags=backend.list_tags_admin(),
             return_to=request.args.get("return_to") or "",
         )
 
@@ -407,7 +407,7 @@ def create_app() -> Flask:
         except (ValueError, LookupError) as exc:
             return jsonify({"ok": False, "message": str(exc)}), 400
 
-    @app.post("/api/tags")
+    @app.post("/api/tags/set")
     def api_tags_set():
         body = request.get_json(silent=True) or {}
         try:
@@ -434,36 +434,36 @@ def create_app() -> Flask:
         """Boot-ID wechselt bei Server-Neustart — Formular-Session wird dann zurückgesetzt."""
         return jsonify({"boot_id": APP_BOOT_ID})
 
-    @app.get("/api/categories")
-    def api_categories():
-        return jsonify(backend.list_categories())
+    @app.get("/api/tags")
+    def api_tags_list():
+        return jsonify(backend.list_tags_admin())
 
-    @app.post("/api/categories")
-    def api_categories_create():
+    @app.post("/api/tags")
+    def api_tags_create():
         body = request.get_json(silent=True) or {}
         name = str(body.get("name", "")).strip()
         if not name:
-            return jsonify({"ok": False, "message": "Kategoriename fehlt."}), 400
+            return jsonify({"ok": False, "message": "Tag-Name fehlt."}), 400
         try:
-            return jsonify(backend.create_category_entry(name))
+            return jsonify(backend.create_tag_entry(name))
         except ValueError as exc:
             return jsonify({"ok": False, "message": str(exc)}), 400
         except Exception as exc:
             return jsonify({"ok": False, "message": str(exc)}), 500
 
-    @app.patch("/api/categories/<int:category_id>")
-    def api_categories_update(category_id: int):
+    @app.patch("/api/tags/<int:tag_id>")
+    def api_tags_update(tag_id: int):
         body = request.get_json(silent=True) or {}
         name = str(body.get("name", "")).strip()
         try:
-            return jsonify(backend.update_category_entry(category_id, name))
+            return jsonify(backend.update_tag_entry(tag_id, name))
         except ValueError as exc:
             return jsonify({"ok": False, "message": str(exc)}), 400
 
-    @app.delete("/api/categories/<int:category_id>")
-    def api_categories_delete(category_id: int):
+    @app.delete("/api/tags/<int:tag_id>")
+    def api_tags_delete(tag_id: int):
         try:
-            return jsonify(backend.delete_category_entry(category_id))
+            return jsonify(backend.delete_tag_entry(tag_id))
         except ValueError as exc:
             return jsonify({"ok": False, "message": str(exc)}), 400
 

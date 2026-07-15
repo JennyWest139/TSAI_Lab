@@ -12,13 +12,13 @@ from sqlalchemy import delete, or_, select
 from sqlalchemy.orm import Session
 
 from tslab.db.models import CorrelationHistory, Observation, TimeSeries, TsaHistory, UploadHistory
-from tslab.services.category_service import PROTECTED_CATEGORY, series_has_protected_category
-from tslab.services.entity_categories import (
+from tslab.services.tag_service import PROTECTED_TAG, series_has_protected_tag
+from tslab.services.entity_tags import (
     ENTITY_CORRELATION,
     ENTITY_SERIES,
     ENTITY_TSA,
-    has_protected_category,
-    list_category_names,
+    has_protected_tag,
+    list_tag_names,
 )
 from tslab.services.output_paths import resolve_output_dir_arg
 
@@ -45,8 +45,8 @@ def preview_delete_series(session: Session, slug: str, scope: DeleteScope) -> De
     ts = session.scalar(select(TimeSeries).where(TimeSeries.slug == slug))
     if ts is None:
         raise LookupError(f"Zeitreihe '{slug}' nicht gefunden.")
-    tags = list_category_names(session, ENTITY_SERIES, ts.id)
-    blocked = has_protected_category(session, ENTITY_SERIES, ts.id) or series_has_protected_category(
+    tags = list_tag_names(session, ENTITY_SERIES, ts.id)
+    blocked = has_protected_tag(session, ENTITY_SERIES, ts.id) or series_has_protected_tag(
         session, ts.id
     )
     actions: list[str] = []
@@ -84,7 +84,7 @@ def preview_delete_series(session: Session, slug: str, scope: DeleteScope) -> De
         actions=actions,
         warnings=warnings,
         blocked=blocked,
-        block_reason=f"Tag '{PROTECTED_CATEGORY}' ist gesetzt — bitte zuerst entfernen." if blocked else None,
+        block_reason=f"Tag '{PROTECTED_TAG}' ist gesetzt — bitte zuerst entfernen." if blocked else None,
     )
 
 
@@ -92,8 +92,8 @@ def preview_delete_correlation(session: Session, run_id: int, scope: DeleteScope
     row = session.get(CorrelationHistory, run_id)
     if row is None:
         raise LookupError(f"Korrelationslauf {run_id} nicht gefunden.")
-    tags = list_category_names(session, ENTITY_CORRELATION, run_id)
-    blocked = has_protected_category(session, ENTITY_CORRELATION, run_id)
+    tags = list_tag_names(session, ENTITY_CORRELATION, run_id)
+    blocked = has_protected_tag(session, ENTITY_CORRELATION, run_id)
     actions: list[str] = []
     if scope == "ui":
         actions.append("Aus Historie ausblenden")
@@ -114,7 +114,7 @@ def preview_delete_correlation(session: Session, run_id: int, scope: DeleteScope
         actions=actions,
         warnings=[],
         blocked=blocked,
-        block_reason=f"Tag '{PROTECTED_CATEGORY}' ist gesetzt — bitte zuerst entfernen." if blocked else None,
+        block_reason=f"Tag '{PROTECTED_TAG}' ist gesetzt — bitte zuerst entfernen." if blocked else None,
     )
 
 
@@ -122,8 +122,8 @@ def preview_delete_tsa(session: Session, run_id: int, scope: DeleteScope) -> Del
     row = session.get(TsaHistory, run_id)
     if row is None:
         raise LookupError(f"TSA-Lauf {run_id} nicht gefunden.")
-    tags = list_category_names(session, ENTITY_TSA, run_id)
-    blocked = has_protected_category(session, ENTITY_TSA, run_id)
+    tags = list_tag_names(session, ENTITY_TSA, run_id)
+    blocked = has_protected_tag(session, ENTITY_TSA, run_id)
     actions: list[str] = []
     if scope == "ui":
         actions.append("Aus Historie ausblenden")
@@ -143,7 +143,7 @@ def preview_delete_tsa(session: Session, run_id: int, scope: DeleteScope) -> Del
         actions=actions,
         warnings=[],
         blocked=blocked,
-        block_reason=f"Tag '{PROTECTED_CATEGORY}' ist gesetzt — bitte zuerst entfernen." if blocked else None,
+        block_reason=f"Tag '{PROTECTED_TAG}' ist gesetzt — bitte zuerst entfernen." if blocked else None,
     )
 
 

@@ -2,7 +2,7 @@
 """Korrelations- und TSA-Historie leeren (z. B. nach Workspace-Umzug).
 
 Zeitreihen und Beobachtungen bleiben unberuehrt. Nur Historie-Eintraege,
-deren Kategorie-Zuordnungen und TSA-Prognosewerte werden entfernt.
+deren Tag-Zuordnungen und TSA-Prognosewerte werden entfernt.
 """
 
 from __future__ import annotations
@@ -17,8 +17,8 @@ sys.path.insert(0, str(ROOT))
 from sqlalchemy import delete, func, select
 
 from tslab.db.engine import get_session, init_db
-from tslab.db.models import CorrelationHistory, EntityCategory, EntityTag, TsaForecastValue, TsaHistory
-from tslab.services.entity_categories import ENTITY_CORRELATION, ENTITY_TSA
+from tslab.db.models import CorrelationHistory, EntityTagLink, TsaForecastValue, TsaHistory
+from tslab.services.entity_tags import ENTITY_CORRELATION, ENTITY_TSA
 
 
 def _counts(session) -> dict[str, int]:
@@ -26,20 +26,16 @@ def _counts(session) -> dict[str, int]:
         "correlation_history": session.scalar(select(func.count()).select_from(CorrelationHistory)) or 0,
         "tsa_history": session.scalar(select(func.count()).select_from(TsaHistory)) or 0,
         "tsa_forecast_values": session.scalar(select(func.count()).select_from(TsaForecastValue)) or 0,
-        "entity_categories_corr": session.scalar(
-            select(func.count()).select_from(EntityCategory).where(EntityCategory.entity_type == ENTITY_CORRELATION)
+        "entity_tag_links_corr": session.scalar(
+            select(func.count())
+            .select_from(EntityTagLink)
+            .where(EntityTagLink.entity_type == ENTITY_CORRELATION)
         )
         or 0,
-        "entity_categories_tsa": session.scalar(
-            select(func.count()).select_from(EntityCategory).where(EntityCategory.entity_type == ENTITY_TSA)
-        )
-        or 0,
-        "entity_tags_corr": session.scalar(
-            select(func.count()).select_from(EntityTag).where(EntityTag.entity_type == ENTITY_CORRELATION)
-        )
-        or 0,
-        "entity_tags_tsa": session.scalar(
-            select(func.count()).select_from(EntityTag).where(EntityTag.entity_type == ENTITY_TSA)
+        "entity_tag_links_tsa": session.scalar(
+            select(func.count())
+            .select_from(EntityTagLink)
+            .where(EntityTagLink.entity_type == ENTITY_TSA)
         )
         or 0,
     }
@@ -52,10 +48,8 @@ def clear_run_history(*, dry_run: bool = False) -> dict[str, int]:
         if dry_run:
             return before
 
-        session.execute(delete(EntityCategory).where(EntityCategory.entity_type == ENTITY_CORRELATION))
-        session.execute(delete(EntityCategory).where(EntityCategory.entity_type == ENTITY_TSA))
-        session.execute(delete(EntityTag).where(EntityTag.entity_type == ENTITY_CORRELATION))
-        session.execute(delete(EntityTag).where(EntityTag.entity_type == ENTITY_TSA))
+        session.execute(delete(EntityTagLink).where(EntityTagLink.entity_type == ENTITY_CORRELATION))
+        session.execute(delete(EntityTagLink).where(EntityTagLink.entity_type == ENTITY_TSA))
         session.execute(delete(TsaForecastValue))
         session.execute(delete(CorrelationHistory))
         session.execute(delete(TsaHistory))

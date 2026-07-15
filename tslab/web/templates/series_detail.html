@@ -40,11 +40,11 @@
 
   <section class="card">
     <h2>Tags</h2>
-    <p id="seriesTagsDisplay" class="tag-display">{{ (series.tags|join(', ') if series.tags else series.category_names|join(', ')) or '—' }}</p>
+    <p id="seriesTagsDisplay" class="tag-display">{{ series.tags|join(', ') or '—' }}</p>
     <button type="button" class="btn btn-ghost" id="seriesTagsEditBtn"
             data-entity-type="series"
             data-entity-id="{{ series.slug }}"
-            data-category-ids="{{ series.category_ids|join(',') if series.category_ids else '' }}">Tags bearbeiten</button>
+            data-tag-ids="{{ series.tag_ids|join(',') if series.tag_ids else '' }}">Tags bearbeiten</button>
     <div class="form-actions">
       <button type="button" id="seriesSaveBtn" class="btn btn-primary">Speichern</button>
     </div>

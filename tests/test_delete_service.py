@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import unittest
 
-from tslab.services.category_service import PROTECTED_CATEGORY
+from tslab.services.tag_service import PROTECTED_TAG
 from tslab.services.report_service import generate_run_report, load_report_config
 
 
 class DeleteServiceTests(unittest.TestCase):
     def test_protected_tag_constant(self) -> None:
-        self.assertEqual(PROTECTED_CATEGORY, "Reporting")
+        self.assertEqual(PROTECTED_TAG, "Reporting")
 
 
 class ReportServiceTests(unittest.TestCase):

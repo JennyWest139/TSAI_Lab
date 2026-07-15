@@ -48,14 +48,14 @@
               role="button" tabindex="0"
               data-entity-type="series"
               data-entity-id="{{ s.slug }}"
-              data-category-ids="{{ s.category_ids|join(',') if s.category_ids else '' }}"
-              title="Tags bearbeiten">{{ (s.tags|join(', ') if s.tags else s.category_names|join(', ')) or '—' }}</td>
+              data-tag-ids="{{ s.tag_ids|join(',') if s.tag_ids else '' }}"
+              title="Tags bearbeiten">{{ s.tags|join(', ') or '—' }}</td>
           <td class="mono">{{ s.first_date }} → {{ s.last_date }}</td>
           <td>{{ s.observation_count }}</td>
           <td><span class="badge">{{ s.frequency_label }}</span></td>
           <td><span class="badge badge-ok">fertig</span></td>
           <td>
-            {% if 'Reporting' not in s.tags and 'Reporting' not in (s.category_names or []) %}
+            {% if 'Reporting' not in s.tags %}
             <button type="button" class="btn btn-ghost btn-sm" data-delete-trigger data-entity-type="series" data-entity-slug="{{ s.slug }}">Löschen</button>
             {% else %}
             <span class="muted" title="Reporting-Tag: Löschen gesperrt">🔒</span>

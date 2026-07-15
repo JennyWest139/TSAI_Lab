@@ -16,19 +16,19 @@ from tslab.db.engine import (
     get_database_url,
     get_session,
 )
-from tslab.db.models import Category, CorrelationHistory, Observation, TimeSeries, TsaHistory
+from tslab.db.models import CorrelationHistory, Observation, TimeSeries, TsaHistory
 from tslab.services.analysis_mode import (
     AnalysisMode,
     get_analysis_mode_config,
     resolve_study_dates_for_mode,
 )
-from tslab.services.category_service import (
-    create_category,
-    delete_category,
-    get_category,
-    get_category_by_name,
-    list_categories,
-    update_category,
+from tslab.services.tag_service import (
+    create_tag,
+    delete_tag,
+    get_tag,
+    get_tag_by_name,
+    list_tags,
+    update_tag,
 )
 from tslab.services.correlation import resolve_correlation_study_dates
 from tslab.services.correlation_job import run_correlation_job
@@ -41,17 +41,17 @@ from tslab.services.delete_service import (
     preview_delete_series,
     preview_delete_tsa,
 )
-from tslab.services.entity_categories import (
+from tslab.services.entity_tags import (
     ENTITY_CORRELATION,
     ENTITY_SERIES,
     ENTITY_TSA,
-    assign_series_categories,
-    entity_ids_with_category,
-    entity_matches_category_name,
-    inherit_categories_from_series_slugs,
-    list_category_ids,
-    list_category_names,
-    set_categories,
+    assign_series_tags,
+    entity_ids_with_tag,
+    entity_matches_tag_name,
+    inherit_tags_from_series_slugs,
+    list_tag_ids,
+    list_tag_names,
+    set_tags,
 )
 from tslab.services.tsa_job import forecast_plot_window_from_payload, run_tsa_job
 from tslab.services.order_selection import parse_order_list
@@ -177,7 +177,7 @@ class CorrelationRunView:
     output_dir: str | None = None
     run_name: str | None = None
     tags: tuple[str, ...] = ()
-    category_ids: tuple[int, ...] = ()
+    tag_ids: tuple[int, ...] = ()
     status: str = "fertig"
     reporting_status: ReportingStatusInfo | None = None
 
@@ -194,6 +194,11 @@ class CorrelationRunView:
     @property
     def has_reporting(self) -> bool:
         return PROTECTED_TAG in self.tags
+
+    @property
+    def category_ids(self) -> tuple[int, ...]:
+        """Legacy-Alias fuer Templates."""
+        return self.tag_ids
 
     @property
     def browse_url(self) -> str | None:
@@ -226,7 +231,7 @@ class TsaRunView:
     created_at: datetime
     output_dir: str | None = None
     tags: tuple[str, ...] = ()
-    category_ids: tuple[int, ...] = ()
+    tag_ids: tuple[int, ...] = ()
     reporting_status: ReportingStatusInfo | None = None
 
     @property
@@ -242,6 +247,11 @@ class TsaRunView:
     @property
     def has_reporting(self) -> bool:
         return PROTECTED_TAG in self.tags
+
+    @property
+    def category_ids(self) -> tuple[int, ...]:
+        """Legacy-Alias fuer Templates."""
+        return self.tag_ids
 
     @property
     def browse_url(self) -> str | None:
@@ -270,14 +280,8 @@ def _ts_to_meta(session, ts: TimeSeries, *, dates: list[date] | None = None) -> 
     if dates is None:
         dates = available_dates_for_series(session, ts.id)
     freq_id, freq_label = detect_frequency_from_dates(dates) if dates else ("MS", "Monatlich")
-    cat_ids = list_category_ids(session, ENTITY_SERIES, ts.id)
-    if ts.category_id is not None and ts.category_id not in cat_ids:
-        cat_ids = [ts.category_id, *cat_ids]
-    cat_names = tuple(list_category_names(session, ENTITY_SERIES, ts.id))
-    if ts.category_id is not None and not cat_names:
-        cat = get_category(session, ts.category_id)
-        if cat:
-            cat_names = (cat.name,)
+    cat_ids = list_tag_ids(session, ENTITY_SERIES, ts.id)
+    cat_names = tuple(list_tag_names(session, ENTITY_SERIES, ts.id))
     return SeriesMeta(
         slug=ts.slug,
         name=ts.name,
@@ -393,16 +397,16 @@ class WebBackend:
             if not include_hidden:
                 rows = [ts for ts in rows if ts.hidden_at is None]
             if tag:
-                cat = get_category_by_name(session, tag)
+                cat = get_tag_by_name(session, tag)
                 if cat is None:
                     return []
-                ids = set(entity_ids_with_category(session, ENTITY_SERIES, cat.id))
+                ids = set(entity_ids_with_tag(session, ENTITY_SERIES, cat.id))
                 rows = [ts for ts in rows if ts.id in ids]
             return [_ts_to_meta(session, ts) for ts in rows]
 
     def all_tags(self) -> list[str]:
         with get_session() as session:
-            return [c.name for c in list_categories(session)]
+            return [c.name for c in list_tags(session)]
 
     def series_by_slug(self, slug: str) -> SeriesMeta | None:
         with get_session() as session:
@@ -746,37 +750,57 @@ class WebBackend:
             result["message"] = str(result.get("message", "")) + f" · {run_pdf.get('message', 'Laufbericht')}"
         return result
 
-    def list_categories(self) -> list[dict]:
+    def list_tags_admin(self) -> list[dict]:
         with get_session() as session:
+            from tslab.db.models import EntityTagLink
+
             return [
                 {
-                    "id": c.id,
-                    "name": c.name,
+                    "id": t.id,
+                    "name": t.name,
                     "series_count": session.scalar(
-                        select(func.count(TimeSeries.id)).where(TimeSeries.category_id == c.id)
+                        select(func.count())
+                        .select_from(EntityTagLink)
+                        .where(
+                            EntityTagLink.entity_type == ENTITY_SERIES,
+                            EntityTagLink.tag_id == t.id,
+                        )
                     )
                     or 0,
                 }
-                for c in list_categories(session)
+                for t in list_tags(session)
             ]
 
-    def create_category_entry(self, name: str) -> dict:
+    def create_tag_entry(self, name: str) -> dict:
         clean = name.strip()
         if not clean:
-            raise ValueError("Kategoriename fehlt.")
+            raise ValueError("Tag-Name fehlt.")
         with get_session() as session:
-            row = create_category(session, clean)
+            row = create_tag(session, clean)
             return {"ok": True, "id": row.id, "name": row.name}
+
+    def update_tag_entry(self, tag_id: int, name: str) -> dict:
+        with get_session() as session:
+            row = update_tag(session, tag_id, name)
+            return {"ok": True, "id": row.id, "name": row.name}
+
+    def delete_tag_entry(self, tag_id: int) -> dict:
+        with get_session() as session:
+            delete_tag(session, tag_id)
+            return {"ok": True}
+
+    # Legacy-Aliase fuer Uebergang
+    def list_categories(self) -> list[dict]:
+        return self.list_tags_admin()
+
+    def create_category_entry(self, name: str) -> dict:
+        return self.create_tag_entry(name)
 
     def update_category_entry(self, category_id: int, name: str) -> dict:
-        with get_session() as session:
-            row = update_category(session, category_id, name)
-            return {"ok": True, "id": row.id, "name": row.name}
+        return self.update_tag_entry(category_id, name)
 
     def delete_category_entry(self, category_id: int) -> dict:
-        with get_session() as session:
-            delete_category(session, category_id)
-            return {"ok": True}
+        return self.delete_tag_entry(category_id)
 
     def update_series_meta(self, slug: str, *, name: str) -> dict:
         clean = name.strip()
@@ -804,9 +828,9 @@ class WebBackend:
                 rows = [r for r in rows if r.hidden_at is None]
             views: list[CorrelationRunView] = []
             for r in rows:
-                cat_names = tuple(list_category_names(session, ENTITY_CORRELATION, r.id))
-                cat_ids = tuple(list_category_ids(session, ENTITY_CORRELATION, r.id))
-                if tag and not entity_matches_category_name(
+                tag_names = tuple(list_tag_names(session, ENTITY_CORRELATION, r.id))
+                tag_ids = tuple(list_tag_ids(session, ENTITY_CORRELATION, r.id))
+                if tag and not entity_matches_tag_name(
                     session,
                     ENTITY_CORRELATION,
                     r.id,
@@ -828,8 +852,8 @@ class WebBackend:
                         created_at=r.created_at,
                         output_dir=r.output_dir,
                         run_name=r.run_name or suggest_run_name(r.series_a_slug, r.series_b_slug),
-                        tags=cat_names,
-                        category_ids=cat_ids,
+                        tags=tag_names,
+                        tag_ids=tag_ids,
                         reporting_status=inspect_reporting_status(r.output_dir),
                     )
                 )
@@ -851,9 +875,9 @@ class WebBackend:
                 rows = [r for r in rows if r.hidden_at is None]
             views: list[TsaRunView] = []
             for r in rows:
-                cat_names = tuple(list_category_names(session, ENTITY_TSA, r.id))
-                cat_ids = tuple(list_category_ids(session, ENTITY_TSA, r.id))
-                if tag and not entity_matches_category_name(
+                tag_names = tuple(list_tag_names(session, ENTITY_TSA, r.id))
+                tag_ids = tuple(list_tag_ids(session, ENTITY_TSA, r.id))
+                if tag and not entity_matches_tag_name(
                     session,
                     ENTITY_TSA,
                     r.id,
@@ -877,8 +901,8 @@ class WebBackend:
                         status=r.status,
                         created_at=r.created_at,
                         output_dir=r.output_dir,
-                        tags=cat_names,
-                        category_ids=cat_ids,
+                        tags=tag_names,
+                        tag_ids=tag_ids,
                         reporting_status=inspect_reporting_status(r.output_dir),
                     )
                 )
@@ -1282,33 +1306,35 @@ class WebBackend:
     def update_tags(self, payload: dict) -> dict:
         entity_type = str(payload.get("entity_type", "")).strip()
         entity_id = payload.get("entity_id")
-        raw_ids = payload.get("category_ids")
+        raw_ids = payload.get("tag_ids")
         if raw_ids is None:
-            raise ValueError("category_ids fehlt.")
+            raw_ids = payload.get("category_ids")
+        if raw_ids is None:
+            raise ValueError("tag_ids fehlt.")
         if not isinstance(raw_ids, list):
-            raise ValueError("category_ids muss eine Liste sein.")
-        category_ids: list[int] = []
+            raise ValueError("tag_ids muss eine Liste sein.")
+        tag_ids: list[int] = []
         for raw in raw_ids:
             if raw in (None, "", "null"):
                 continue
-            category_ids.append(int(raw))
+            tag_ids.append(int(raw))
         with get_session() as session:
             if entity_type == ENTITY_SERIES:
                 ts = get_series_by_slug(session, str(entity_id))
                 if ts is None:
                     raise LookupError("Zeitreihe nicht gefunden.")
-                assign_series_categories(session, ts.id, category_ids)
-                names = list_category_names(session, ENTITY_SERIES, ts.id)
+                assign_series_tags(session, ts.id, tag_ids)
+                names = list_tag_names(session, ENTITY_SERIES, ts.id)
             else:
                 eid = int(entity_id)
-                set_categories(session, entity_type, eid, category_ids)
-                names = list_category_names(session, entity_type, eid)
-        return {"ok": True, "tags": names, "category_ids": category_ids}
+                set_tags(session, entity_type, eid, tag_ids)
+                names = list_tag_names(session, entity_type, eid)
+        return {"ok": True, "tags": names, "tag_ids": tag_ids, "category_ids": tag_ids}
 
     def tag_suggestions(self, prefix: str = "") -> list[str]:
         with get_session() as session:
-            cats = list_categories(session)
+            tags = list_tags(session)
             if prefix:
                 needle = prefix.strip().lower()
-                return [c.name for c in cats if needle in c.name.lower()]
-            return [c.name for c in cats]
+                return [t.name for t in tags if needle in t.name.lower()]
+            return [t.name for t in tags]

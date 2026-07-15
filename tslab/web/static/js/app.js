@@ -1246,17 +1246,17 @@ const TSLab = (() => {
     });
   }
 
-  function initCategoriesPage(returnTo) {
-    const form = document.getElementById("categoryCreateForm");
-    const createBtn = document.getElementById("categoryCreateBtn");
+  function initTagsPage(returnTo) {
+    const form = document.getElementById("tagCreateForm");
+    const createBtn = document.getElementById("tagCreateBtn");
 
-    async function createCategory() {
-      const name = document.getElementById("newCategoryName")?.value?.trim();
+    async function createTag() {
+      const name = document.getElementById("newTagName")?.value?.trim();
       if (!name) {
         toast("Bitte Tag-Namen eingeben.");
         return;
       }
-      const res = await fetch("/api/categories", {
+      const res = await fetch("/api/tags", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name }),
@@ -1273,7 +1273,7 @@ const TSLab = (() => {
         return;
       }
       toast(`Tag „${data.name}“ angelegt.`);
-      const nameInput = document.getElementById("newCategoryName");
+      const nameInput = document.getElementById("newTagName");
       if (nameInput) nameInput.value = "";
       if (returnTo) window.location.href = returnTo;
       else window.location.reload();
@@ -1281,17 +1281,17 @@ const TSLab = (() => {
 
     form?.addEventListener("submit", (e) => {
       e.preventDefault();
-      createCategory();
+      createTag();
     });
-    createBtn?.addEventListener("click", createCategory);
+    createBtn?.addEventListener("click", createTag);
 
-    document.querySelectorAll("[data-save-category]").forEach((btn) => {
+    document.querySelectorAll("[data-save-tag]").forEach((btn) => {
       btn.addEventListener("click", async () => {
-        const id = btn.dataset.saveCategory;
-        const input = document.querySelector(`.category-name-input[data-id="${id}"]`);
+        const id = btn.dataset.saveTag;
+        const input = document.querySelector(`.tag-name-input[data-id="${id}"]`);
         const name = input?.value?.trim();
         if (!name) return;
-        const res = await fetch(`/api/categories/${id}`, {
+        const res = await fetch(`/api/tags/${id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ name }),
@@ -1301,11 +1301,11 @@ const TSLab = (() => {
       });
     });
 
-    document.querySelectorAll("[data-delete-category]").forEach((btn) => {
+    document.querySelectorAll("[data-delete-tag]").forEach((btn) => {
       btn.addEventListener("click", async () => {
-        const id = btn.dataset.deleteCategory;
+        const id = btn.dataset.deleteTag;
         if (!confirm("Tag wirklich löschen? Zuordnungen werden entfernt.")) return;
-        const res = await fetch(`/api/categories/${id}`, { method: "DELETE" });
+        const res = await fetch(`/api/tags/${id}`, { method: "DELETE" });
         const data = await res.json();
         if (data.ok) window.location.reload();
         else toast(data.message || "Fehler");
@@ -1444,30 +1444,30 @@ const TSLab = (() => {
     let context = null;
     let allTagsCache = null;
 
-    async function loadAllCategories() {
+    async function loadAllTags() {
       if (allTagsCache) return allTagsCache;
-      const res = await fetch("/api/categories");
+      const res = await fetch("/api/tags");
       allTagsCache = res.ok ? await res.json() : [];
       return allTagsCache;
     }
 
-    function fillLists(selectedIds, allCategories) {
+    function fillLists(selectedIds, allTags) {
       selectedEl.innerHTML = "";
       availableEl.innerHTML = "";
       const selected = new Set(selectedIds.map(String));
-      (allCategories || [])
+      (allTags || [])
         .slice()
         .sort((a, b) => a.name.localeCompare(b.name, "de"))
-        .forEach((cat) => {
+        .forEach((tag) => {
           const opt = document.createElement("option");
-          opt.value = String(cat.id);
-          opt.textContent = cat.name;
-          if (selected.has(String(cat.id))) selectedEl.appendChild(opt);
+          opt.value = String(tag.id);
+          opt.textContent = tag.name;
+          if (selected.has(String(tag.id))) selectedEl.appendChild(opt);
           else availableEl.appendChild(opt);
         });
     }
 
-    function parseCategoryIds(raw) {
+    function parseTagIds(raw) {
       return (raw || "")
         .split(",")
         .map((t) => t.trim())
@@ -1479,8 +1479,8 @@ const TSLab = (() => {
     async function openShuttle(entityType, entityId, selectedIds, label) {
       context = { entityType, entityId };
       if (titleEl) titleEl.textContent = label || "Tags";
-      const allCategories = await loadAllCategories();
-      fillLists(selectedIds, allCategories);
+      const allTags = await loadAllTags();
+      fillLists(selectedIds, allTags);
       modal.hidden = false;
     }
 
@@ -1492,7 +1492,7 @@ const TSLab = (() => {
       openShuttle(
         cell.dataset.entityType,
         cell.dataset.entityId,
-        parseCategoryIds(cell.dataset.categoryIds),
+        parseTagIds(cell.dataset.tagIds || cell.dataset.categoryIds),
         "Tags"
       );
     });
@@ -1502,7 +1502,7 @@ const TSLab = (() => {
       openShuttle(
         btn.dataset.entityType,
         btn.dataset.entityId,
-        parseCategoryIds(btn.dataset.categoryIds),
+        parseTagIds(btn.dataset.tagIds || btn.dataset.categoryIds),
         "Tags"
       );
     });
@@ -1516,14 +1516,14 @@ const TSLab = (() => {
 
     saveBtn?.addEventListener("click", async () => {
       if (!context) return;
-      const category_ids = shuttle.selectedTags();
-      const res = await fetch("/api/tags", {
+      const tag_ids = shuttle.selectedTags();
+      const res = await fetch("/api/tags/set", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           entity_type: context.entityType,
           entity_id: context.entityId,
-          category_ids,
+          tag_ids,
         }),
       });
       const data = await res.json();
@@ -1608,7 +1608,7 @@ const TSLab = (() => {
     initCorrelation,
     initTsa,
     initUpload,
-    initCategoriesPage,
+    initTagsPage,
     initSeriesEdit,
     initListToolbar,
     initTagShuttle,

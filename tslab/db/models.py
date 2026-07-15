@@ -1,4 +1,4 @@
-"""SQLAlchemy-Modelle für Zeitreihen und Historie."""
+"""SQLAlchemy-Modelle fuer Zeitreihen und Historie."""
 
 from __future__ import annotations
 
@@ -24,13 +24,22 @@ class Base(DeclarativeBase):
     pass
 
 
+class Tag(Base):
+    __tablename__ = "tags"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(120), unique=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
 class TimeSeries(Base):
     __tablename__ = "time_series"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(120), unique=True, nullable=False)
     slug: Mapped[str] = mapped_column(String(120), unique=True, nullable=False)
-    category_id: Mapped[int | None] = mapped_column(ForeignKey("categories.id"))
     source_file: Mapped[str | None] = mapped_column(String(512))
     value_column: Mapped[str | None] = mapped_column(String(64))
     date_column: Mapped[str | None] = mapped_column(String(64))
@@ -45,19 +54,6 @@ class TimeSeries(Base):
     observations: Mapped[list[Observation]] = relationship(
         back_populates="series", cascade="all, delete-orphan"
     )
-    category: Mapped[Category | None] = relationship(back_populates="series")
-
-
-class Category(Base):
-    __tablename__ = "categories"
-
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    name: Mapped[str] = mapped_column(String(120), unique=True, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
-
-    series: Mapped[list[TimeSeries]] = relationship(back_populates="category")
 
 
 class Observation(Base):
@@ -150,40 +146,24 @@ class TsaForecastValue(Base):
     tsa_history: Mapped[TsaHistory] = relationship(back_populates="forecast_values")
 
 
-class EntityTag(Base):
-    __tablename__ = "entity_tags"
-    __table_args__ = (
-        UniqueConstraint("entity_type", "entity_id", "tag", name="uq_entity_tags"),
-        Index("ix_entity_tags_tag", "tag"),
-    )
+class EntityTagLink(Base):
+    """n:m Zuordnung Tags zu Serie, Korrelation oder TSA-Lauf."""
 
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    entity_type: Mapped[str] = mapped_column(String(32), nullable=False)
-    entity_id: Mapped[int] = mapped_column(nullable=False)
-    tag: Mapped[str] = mapped_column(String(120), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
-
-
-class EntityCategory(Base):
-    """n:m Zuordnung Kategorien zu Serie, Korrelation oder TSA-Lauf."""
-
-    __tablename__ = "entity_categories"
+    __tablename__ = "entity_tag_links"
     __table_args__ = (
         UniqueConstraint(
-            "entity_type", "entity_id", "category_id", name="uq_entity_categories"
+            "entity_type", "entity_id", "tag_id", name="uq_entity_tag_links"
         ),
-        Index("ix_entity_categories_cat", "category_id"),
-        Index("ix_entity_categories_entity", "entity_type", "entity_id"),
+        Index("ix_entity_tag_links_tag", "tag_id"),
+        Index("ix_entity_tag_links_entity", "entity_type", "entity_id"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     entity_type: Mapped[str] = mapped_column(String(32), nullable=False)
     entity_id: Mapped[int] = mapped_column(nullable=False)
-    category_id: Mapped[int] = mapped_column(ForeignKey("categories.id"), nullable=False)
+    tag_id: Mapped[int] = mapped_column(ForeignKey("tags.id"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
 
-    category: Mapped[Category] = relationship()
+    tag: Mapped[Tag] = relationship()

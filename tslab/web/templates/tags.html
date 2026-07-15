@@ -6,13 +6,13 @@
 {% block content %}
 <section class="card">
   <h2>Neuer Tag</h2>
-  <form id="categoryCreateForm" class="grid two-col" action="#" method="post" onsubmit="return false;">
+  <form id="tagCreateForm" class="grid two-col" action="#" method="post" onsubmit="return false;">
     <div class="field-row">
-      <label for="newCategoryName">Name</label>
-      <input type="text" id="newCategoryName" name="name" required maxlength="120" placeholder="z. B. Makro">
+      <label for="newTagName">Name</label>
+      <input type="text" id="newTagName" name="name" required maxlength="120" placeholder="z. B. Makro">
     </div>
     <div class="form-actions">
-      <button type="button" id="categoryCreateBtn" class="btn btn-primary">Anlegen</button>
+      <button type="button" id="tagCreateBtn" class="btn btn-primary">Anlegen</button>
       {% if return_to %}
       <a href="{{ return_to }}" class="btn btn-ghost">Zurück</a>
       {% endif %}
@@ -24,25 +24,25 @@
 <section class="card">
   <h2>Vorhandene Tags</h2>
   <div class="table-wrap">
-    <table class="data-table" id="categoriesTable">
+    <table class="data-table" id="tagsTable">
       <thead>
         <tr><th>Name</th><th>Zeitreihen</th><th></th></tr>
       </thead>
       <tbody>
-        {% for c in categories %}
-        <tr data-id="{{ c.id }}">
+        {% for t in tags %}
+        <tr data-id="{{ t.id }}">
           <td>
-            {% if c.name == 'Reporting' %}
-            <strong>{{ c.name }}</strong> <span class="muted">(geschützt)</span>
+            {% if t.name == 'Reporting' %}
+            <strong>{{ t.name }}</strong> <span class="muted">(geschützt)</span>
             {% else %}
-            <input type="text" class="category-name-input" value="{{ c.name }}" data-id="{{ c.id }}">
+            <input type="text" class="tag-name-input" value="{{ t.name }}" data-id="{{ t.id }}">
             {% endif %}
           </td>
-          <td>{{ c.series_count }}</td>
+          <td>{{ t.series_count }}</td>
           <td>
-            {% if c.name != 'Reporting' %}
-            <button type="button" class="btn btn-ghost btn-sm" data-save-category="{{ c.id }}">Speichern</button>
-            <button type="button" class="btn btn-ghost btn-sm" data-delete-category="{{ c.id }}">Löschen</button>
+            {% if t.name != 'Reporting' %}
+            <button type="button" class="btn btn-ghost btn-sm" data-save-tag="{{ t.id }}">Speichern</button>
+            <button type="button" class="btn btn-ghost btn-sm" data-delete-tag="{{ t.id }}">Löschen</button>
             {% else %}
             <span class="muted">🔒</span>
             {% endif %}
@@ -60,6 +60,6 @@
 {% block scripts %}
 <script>
   TSLab.initCore();
-  TSLab.initCategoriesPage({{ return_to | tojson }});
+  TSLab.initTagsPage({{ return_to | tojson }});
 </script>
 {% endblock %}

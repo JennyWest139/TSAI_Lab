@@ -45,7 +45,7 @@
               role="button" tabindex="0"
               data-entity-type="correlation"
               data-entity-id="{{ r.id }}"
-              data-category-ids="{{ r.category_ids|join(',') if r.category_ids else '' }}"
+              data-tag-ids="{{ r.tag_ids|join(',') if r.tag_ids else '' }}"
               title="Tags bearbeiten">{{ r.tags|join(', ') or '—' }}</td>
           <td>{{ r.series_a }}</td>
           <td>{{ r.series_b }}</td>

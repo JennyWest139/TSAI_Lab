@@ -150,9 +150,9 @@ def run_correlation_job(
         session.commit()
         session.refresh(row)
         history_id = row.id
-        from tslab.services.entity_categories import ENTITY_CORRELATION, inherit_categories_from_series_slugs
+        from tslab.services.entity_tags import ENTITY_CORRELATION, inherit_tags_from_series_slugs
 
-        inherit_categories_from_series_slugs(
+        inherit_tags_from_series_slugs(
             session,
             entity_type=ENTITY_CORRELATION,
             entity_id=row.id,

@@ -43,7 +43,7 @@
               role="button" tabindex="0"
               data-entity-type="tsa"
               data-entity-id="{{ r.id }}"
-              data-category-ids="{{ r.category_ids|join(',') if r.category_ids else '' }}"
+              data-tag-ids="{{ r.tag_ids|join(',') if r.tag_ids else '' }}"
               title="Tags bearbeiten">{{ r.tags|join(', ') or '—' }}</td>
           <td>{% for m in r.models %}<span class="badge badge-sm">{{ m }}</span> {% endfor %}</td>
           <td class="mono">{{ r.train_start }} → {{ r.train_end }}</td>
