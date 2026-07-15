@@ -74,9 +74,9 @@ def main() -> None:
     out = job.output_dir
     print(f"Analysemodus: {mode_config.slug} – {mode_config.label_de}")
     print(f"Fertig: {out}")
-    print(f"  Tabelle: lag_correlations.csv")
-    print(f"  Grafik:  cross_correlation.png, aligned_series.png")
-    print(f"  Historie: correlation_history")
+    print("  Tabelle: lag_correlations.csv")
+    print("  Grafik:  cross_correlation.png, aligned_series.png")
+    print("  Historie: correlation_history")
 
 
 if __name__ == "__main__":

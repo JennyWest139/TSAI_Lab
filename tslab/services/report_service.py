@@ -13,16 +13,10 @@ from tslab.config_loader import load_defaults
 from tslab.services.ai_providers import (
     ModelSpec,
     LLMUsage,
-    flush_langfuse,
     gemini_sdk_available,
-    get_provider,
-    init_langfuse,
-    langfuse_configured,
     parse_model_id,
 )
-from tslab.services.report_docx import build_run_report_docx
-from tslab.services.report_ai_pdf import build_run_report_pdf
-from tslab.services.output_paths import relative_output_path, resolve_output_dir_arg
+from tslab.services.output_paths import resolve_output_dir_arg
 
 _SYSTEM_DE = (
     "Du bist Analyst fuer Zeitreihen und oekonometrische Auswertungen (Diplomarbeit-Stil). "

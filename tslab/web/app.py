@@ -12,7 +12,7 @@ from tslab.services.report_service import load_report_config
 from tslab.services.output_paths import output_ref
 from tslab.web.backend import WebBackend
 from tslab.web.series_meta import TSA_MODELS, series_to_dict
-from tslab.web.output_browser import list_directory, resolve_output_path, serve_output_file, zip_directory
+from tslab.web.output_browser import list_directory, serve_output_file, zip_directory
 from tslab.services.order_selection import order_table_rows
 from tslab.web.perf import configure_perf_logging
 
@@ -178,7 +178,7 @@ def create_app() -> Flask:
         s = backend.series_by_slug(slug)
         if s is None:
             return jsonify({"error": "Serie nicht gefunden"}), 404
-        data = mock.series_to_dict(s)
+        data = series_to_dict(s)
         data["dates"] = backend.series_dates(slug)
         return jsonify(data)
 

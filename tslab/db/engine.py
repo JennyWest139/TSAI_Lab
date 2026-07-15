@@ -10,7 +10,6 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
 from tslab.config_loader import load_defaults
-from tslab.db.models import Base
 
 SETUP_HINT = """
 Datenbank nicht erreichbar.

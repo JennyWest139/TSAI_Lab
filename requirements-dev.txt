@@ -1,0 +1,3 @@
+# Optional: Lint und Tests
+ruff>=0.9.0
+pytest>=8.0.0

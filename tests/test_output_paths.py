@@ -5,7 +5,6 @@ import pytest
 from tslab.services.output_paths import (
     browse_url_for,
     output_ref,
-    output_root,
     relative_output_path,
     resolve_output_dir_arg,
 )

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 import pandas as pd
 
-from tslab.services.analysis_window import StudyDates, TSASplit, prepare_tsa_split
+from tslab.services.analysis_window import StudyDates, prepare_tsa_split
 
 
 @dataclass

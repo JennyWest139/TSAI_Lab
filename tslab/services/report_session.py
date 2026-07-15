@@ -1150,7 +1150,7 @@ def step_report_session(
                             msg = f"Bildanalyse {img_path.name}: abgebrochen (Rate-Limit)"
                             target.ai_errors.append(msg)
                             target.image_sections.append(
-                                [img_path.name, f"(Fehler: abgebrochen)", str(img_path)]
+                                [img_path.name, "(Fehler: abgebrochen)", str(img_path)]
                             )
                         elif task.kind == "text_bundle" and not target.ai_text_notes:
                             target.ai_errors.append("Textauswertung: abgebrochen (Rate-Limit)")

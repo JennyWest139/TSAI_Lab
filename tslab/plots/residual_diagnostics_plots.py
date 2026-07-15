@@ -9,7 +9,6 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
 from statsmodels.graphics.gofplots import qqplot
 
@@ -18,7 +17,6 @@ from tslab.plots.time_series_plots import (
     _caption,
     _prepare_series,
     _save,
-    _safe_lags,
     plot_acf,
     plot_histogram,
     plot_pacf,

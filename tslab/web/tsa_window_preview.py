@@ -7,7 +7,6 @@ from typing import Any
 import pandas as pd
 
 from tslab.services.forecast_plot_window import (
-    ForecastPlotWindow,
     resolve_forecast_plot_bounds,
     resolve_forecast_plot_window,
 )

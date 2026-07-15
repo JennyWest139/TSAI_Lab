@@ -10,7 +10,6 @@ import pandas as pd
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from tslab.db.engine import get_session, init_db
 from tslab.db.models import Observation, TimeSeries, UploadHistory
 from tslab.services.analysis_window import AnalysisWindow, resolve_analysis_window
 from tslab.services.date_parse import parse_observation_dates

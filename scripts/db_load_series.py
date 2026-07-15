@@ -13,6 +13,8 @@ import argparse
 import sys
 from pathlib import Path
 
+import pandas as pd
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
@@ -23,7 +25,7 @@ from tslab.services.analysis_window import (
     resolve_study_dates,
 )
 from tslab.services.ingest_werte import load_pdax_series
-from tslab.services.timeseries_store import load_pdax_full, load_series_full_pandas
+from tslab.services.timeseries_store import load_series_full_pandas
 
 
 def _load_full(series_name: str, from_csv: bool, session) -> pd.Series:

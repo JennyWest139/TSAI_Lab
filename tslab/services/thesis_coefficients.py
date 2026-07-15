@@ -13,7 +13,6 @@ from tslab.config_loader import project_root
 from tslab.services.models_garch import (
     ArmaGarchFitResult,
     GarchFitResult,
-    GARCH_SCALE,
 )
 
 DEFAULT_REFERENCE_PATH = project_root() / "config" / "thesis_reference_coefficients.yaml"

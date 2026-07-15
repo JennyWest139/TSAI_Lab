@@ -26,7 +26,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.exc import OperationalError, ProgrammingError
 
 from tslab.config_loader import load_defaults
-from tslab.db.engine import check_connection, get_database_url, init_db, get_session
+from tslab.db.engine import check_connection, init_db, get_session
 from tslab.services.timeseries_store import seed_werte_csv_columns
 
 

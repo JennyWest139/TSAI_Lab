@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
-import io
 import tempfile
 import unittest
 from pathlib import Path
 
 import pandas as pd
 
-from tslab.services.date_parse import analyze_date_column, detect_date_format, parse_observation_dates
-from tslab.services.number_parse import detect_decimal_mode, parse_locale_number
+from tslab.services.date_parse import detect_date_format, parse_observation_dates
 from tslab.services.timeseries_store import _series_to_frame
 from tslab.web.csv_preview import preview_upload_bytes
 

@@ -60,6 +60,14 @@ docker compose up -d
 pip install -r requirements.txt
 ```
 
+Optional fuer Lint/Tests:
+
+```powershell
+pip install -r requirements-dev.txt
+ruff check tslab tests scripts
+pytest tests/
+```
+
 ### 3. Tabellen anlegen & CSV importieren
 
 ```powershell

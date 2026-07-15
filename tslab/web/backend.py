@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import date, datetime
-from pathlib import Path
 
 from sqlalchemy import func, select
 
@@ -25,7 +24,6 @@ from tslab.services.analysis_mode import (
 from tslab.services.tag_service import (
     create_tag,
     delete_tag,
-    get_tag,
     get_tag_by_name,
     list_tags,
     update_tag,
@@ -48,7 +46,6 @@ from tslab.services.entity_tags import (
     assign_series_tags,
     entity_ids_with_tag,
     entity_matches_tag_name,
-    inherit_tags_from_series_slugs,
     list_tag_ids,
     list_tag_names,
     set_tags,
@@ -110,7 +107,9 @@ from tslab.web.series_meta import (
     series_to_dict,
     suggest_run_name,
 )
-from tslab.web.output_browser import zip_directory
+from tslab.web.perf import log_timing
+from tslab.web.series_chart import build_pair_chart_payload, build_series_chart_payload
+from tslab.web.tsa_window_preview import build_tsa_window_preview
 
 
 def _run_report_url(output_dir: str | None) -> str | None:
@@ -157,9 +156,6 @@ def _modellvergleich_url(output_dir: str | None) -> str | None:
             return None
     rel = output_ref(pdfs[-1])
     return f"/output/file/{rel}"
-from tslab.web.perf import log_timing
-from tslab.web.series_chart import build_pair_chart_payload, build_series_chart_payload
-from tslab.web.tsa_window_preview import build_tsa_window_preview
 
 
 @dataclass(frozen=True)
@@ -633,7 +629,6 @@ class WebBackend:
         browse = browse_url_for(output_dir)
         collector.set_output(output_dir, browse_url=browse)
         collector.set_langfuse_status(langfuse_status_from_config(load_report_config()))
-        reports = []
         if report_result:
             collector.merge_ai_session_result(report_result)
         run_pdf = collector.write_pdf(variant="final")
