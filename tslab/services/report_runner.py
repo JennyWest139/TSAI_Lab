@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from tslab.services.output_paths import browse_url_for, relative_output_path, resolve_output_dir_arg
+from tslab.services.output_paths import browse_url_for, output_ref, relative_output_path, resolve_output_dir_arg
 from tslab.services.report_session import (
     load_session,
     prepare_report_session,
@@ -37,6 +37,10 @@ _BACKGROUND_JOIN_TIMEOUT_S = 600.0
 _USER_ABORT_JOIN_TIMEOUT_S = 45.0
 STALE_KI_SESSION_MINUTES = 30
 KI_FAILED_BASENAME = ".ki_run_failed.json"
+
+
+def _registry_key(output_dir: str | Path) -> str:
+    return output_ref(output_dir)
 
 
 def _reports_dir(run_path: Path) -> Path:
@@ -88,7 +92,7 @@ def _abort_event_for(run_path_str: str) -> threading.Event:
 
 
 def is_ki_abort_requested(output_dir: str | Path) -> bool:
-    run_path_str = str(resolve_output_dir_arg(output_dir))
+    run_path_str = output_ref(output_dir)
     with _registry_lock:
         event = _abort_events.get(run_path_str)
         return event is not None and event.is_set()
@@ -148,7 +152,7 @@ def finalize_aborted_ki_run(
     from tslab.services.report_session import delete_session, load_session
 
     run_path = resolve_output_dir_arg(output_dir)
-    run_path_str = str(run_path)
+    run_path_str = output_ref(run_path)
     session_path = _reports_dir(run_path) / ".report_session.json"
     with _finalize_lock_for(run_path_str):
         if not load_pending_collector(run_path) and not session_path.is_file():
@@ -202,7 +206,7 @@ def abort_ki_run_by_user(output_dir: str | Path) -> dict[str, Any]:
     from tslab.services.reporting_status import inspect_reporting_status, ki_abort_available
 
     run_path = resolve_output_dir_arg(output_dir)
-    run_path_str = str(run_path)
+    run_path_str = output_ref(run_path)
 
     if not ki_abort_available(run_path):
         return {
@@ -324,7 +328,7 @@ def run_report_session_to_completion(
     for _ in range(_MAX_STEP_ITERATIONS):
         if is_ki_abort_requested(output_dir):
             step = step_report_session(output_dir, action="finish", auto_pause=auto_pause)
-            user_msg = _peek_user_abort_message(str(resolve_output_dir_arg(output_dir))) or _user_abort_message()
+            user_msg = _peek_user_abort_message(output_ref(output_dir)) or _user_abort_message()
             if step.get("status") == "done":
                 step["ok"] = False
                 step["message"] = user_msg
@@ -550,7 +554,7 @@ def start_background_ai_reports(
     from tslab.services.report_session import delete_session
 
     run_path = resolve_output_dir_arg(output_dir)
-    run_path_str = str(run_path)
+    run_path_str = output_ref(run_path)
     if not model_id:
         return False
 

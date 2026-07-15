@@ -9,6 +9,7 @@ from flask import Flask, jsonify, render_template, request, send_file
 
 from tslab.config_loader import load_dotenv_file
 from tslab.services.report_service import load_report_config
+from tslab.services.output_paths import output_ref
 from tslab.web import mock_data as mock
 from tslab.web.backend import WebBackend
 from tslab.web.output_browser import list_directory, resolve_output_path, serve_output_file, zip_directory
@@ -17,6 +18,13 @@ from tslab.web.perf import configure_perf_logging
 
 _WEB_ROOT = Path(__file__).resolve().parent
 APP_BOOT_ID = uuid4().hex
+
+
+def _parse_output_dir(body: dict) -> str:
+    raw = str(body.get("output_dir", "")).strip()
+    if not raw:
+        raise ValueError("output_dir fehlt.")
+    return output_ref(raw)
 
 
 def create_app(*, use_mock: bool = False) -> Flask:
@@ -484,9 +492,10 @@ def create_app(*, use_mock: bool = False) -> Flask:
     @app.post("/api/report/generate")
     def api_report_generate():
         body = request.get_json(silent=True) or {}
-        output_dir = str(body.get("output_dir", "")).strip()
-        if not output_dir:
-            return jsonify({"ok": False, "message": "output_dir fehlt."}), 400
+        try:
+            output_dir = _parse_output_dir(body)
+        except ValueError as exc:
+            return jsonify({"ok": False, "message": str(exc)}), 400
         try:
             result = backend.generate_output_report(
                 output_dir,
@@ -503,9 +512,10 @@ def create_app(*, use_mock: bool = False) -> Flask:
     @app.post("/api/report/session/prepare")
     def api_report_session_prepare():
         body = request.get_json(silent=True) or {}
-        output_dir = str(body.get("output_dir", "")).strip()
-        if not output_dir:
-            return jsonify({"ok": False, "message": "output_dir fehlt."}), 400
+        try:
+            output_dir = _parse_output_dir(body)
+        except ValueError as exc:
+            return jsonify({"ok": False, "message": str(exc)}), 400
         try:
             return jsonify(
                 backend.prepare_output_report(
@@ -521,9 +531,10 @@ def create_app(*, use_mock: bool = False) -> Flask:
     @app.post("/api/report/session/step")
     def api_report_session_step():
         body = request.get_json(silent=True) or {}
-        output_dir = str(body.get("output_dir", "")).strip()
-        if not output_dir:
-            return jsonify({"ok": False, "message": "output_dir fehlt."}), 400
+        try:
+            output_dir = _parse_output_dir(body)
+        except ValueError as exc:
+            return jsonify({"ok": False, "message": str(exc)}), 400
         action = body.get("action")
         if action is not None:
             action = str(action).strip() or None
@@ -535,9 +546,10 @@ def create_app(*, use_mock: bool = False) -> Flask:
     @app.post("/api/report/abort")
     def api_report_abort():
         body = request.get_json(silent=True) or {}
-        output_dir = str(body.get("output_dir", "")).strip()
-        if not output_dir:
-            return jsonify({"ok": False, "message": "output_dir fehlt."}), 400
+        try:
+            output_dir = _parse_output_dir(body)
+        except ValueError as exc:
+            return jsonify({"ok": False, "message": str(exc)}), 400
         try:
             return jsonify(backend.abort_output_report(output_dir))
         except ValueError as exc:
@@ -546,9 +558,10 @@ def create_app(*, use_mock: bool = False) -> Flask:
     @app.post("/api/run/finalize")
     def api_run_finalize():
         body = request.get_json(silent=True) or {}
-        output_dir = str(body.get("output_dir", "")).strip()
-        if not output_dir:
-            return jsonify({"ok": False, "message": "output_dir fehlt."}), 400
+        try:
+            output_dir = _parse_output_dir(body)
+        except ValueError as exc:
+            return jsonify({"ok": False, "message": str(exc)}), 400
         try:
             return jsonify(
                 backend.finalize_deferred_run(

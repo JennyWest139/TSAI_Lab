@@ -10,6 +10,7 @@ from pathlib import Path
 from sqlalchemy import select
 
 from tslab.config_loader import resolve_output_dir
+from tslab.services.output_paths import output_ref
 from tslab.db.engine import get_session, init_db
 from tslab.db.models import TsaHistory
 
@@ -42,7 +43,7 @@ def backfill_tsa_history(*, dry_run: bool = False) -> int:
         for path in sorted(root.glob("tsa_*")):
             if not path.is_dir():
                 continue
-            out_str = str(path.resolve())
+            out_str = output_ref(path)
             if out_str in existing_dirs:
                 continue
             meta = _parse_folder(path.name) or {}

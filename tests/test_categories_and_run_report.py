@@ -52,7 +52,7 @@ class RunReportPdfTests(unittest.TestCase):
         telemetry = RunTelemetry(
             run_type="Korrelation",
             started_at=now,
-            output_dir="/tmp/test_run",
+            output_dir="test_run",
             components=[
                 ComponentTiming("job", 123.4, started_at=now, ended_at=now),
             ],
@@ -79,7 +79,7 @@ class RunReportPdfTests(unittest.TestCase):
         telemetry = RunTelemetry(
             run_type="Korrelation",
             started_at=now,
-            output_dir="/tmp/test_run",
+            output_dir="test_run",
             components=[
                 ComponentTiming("job", 123.4, started_at=now, ended_at=now),
             ],
@@ -97,20 +97,25 @@ class RunReportPdfTests(unittest.TestCase):
 
 class RunTelemetryCollectorTests(unittest.TestCase):
     def test_track_and_write(self) -> None:
+        from unittest.mock import patch
+
         with tempfile.TemporaryDirectory() as tmp:
-            out = Path(tmp) / "run_out"
-            out.mkdir()
-            (out / "summary.txt").write_text("test", encoding="utf-8")
-            collector = RunTelemetryCollector(run_type="Test")
-            with collector.track("step_a"):
-                pass
-            collector.set_output(out)
-            prep = collector.write_pdf(variant="prep")
-            final = collector.write_pdf(variant="final")
-            self.assertTrue(prep["ok"])
-            self.assertTrue(final["ok"])
-            self.assertTrue((out / "Reports" / "prep_laufbericht.pdf").is_file())
-            self.assertTrue((out / "Reports" / "laufbericht.pdf").is_file())
+            root = Path(tmp)
+            with patch("tslab.services.output_paths.resolve_output_dir", return_value=root):
+                out = root / "run_out"
+                out.mkdir()
+                (out / "summary.txt").write_text("test", encoding="utf-8")
+                collector = RunTelemetryCollector(run_type="Test")
+                with collector.track("step_a"):
+                    pass
+                collector.set_output("run_out")
+                prep = collector.write_pdf(variant="prep")
+                final = collector.write_pdf(variant="final")
+                self.assertTrue(prep["ok"])
+                self.assertTrue(final["ok"])
+                self.assertTrue((out / "Reports" / "prep_laufbericht.pdf").is_file())
+                self.assertTrue((out / "Reports" / "laufbericht.pdf").is_file())
+                self.assertEqual(collector.data.output_dir, "run_out")
 
 
 if __name__ == "__main__":

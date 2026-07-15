@@ -17,6 +17,7 @@ from tslab.services.correlation import (
     run_correlation,
 )
 from tslab.services.output_naming import allocate_unique_output_folder, correlation_folder_name
+from tslab.services.output_paths import output_ref
 from tslab.plots.correlation_plots import plot_aligned_series, plot_cross_correlation_bars
 
 
@@ -143,7 +144,7 @@ def run_correlation_job(
             best_correlation=best_r,
             analysis_mode=mode_config.slug,
             run_name=run_name,
-            output_dir=str(out),
+            output_dir=output_ref(out),
         )
         session.add(row)
         session.commit()

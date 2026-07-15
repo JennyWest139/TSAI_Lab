@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from sqlalchemy import inspect, text
+from sqlalchemy import inspect, select, text
 
 from tslab.db.engine import get_database_kind, get_engine
 from tslab.db.models import Base
@@ -57,6 +57,48 @@ def migrate_schema() -> None:
     migrate_columns()
     _seed_categories()
     _backfill_entity_categories()
+    _normalize_output_dirs()
+
+
+def _normalize_output_dirs() -> None:
+    """Absolute output_dir-Werte in relative Verweise unter output/ umwandeln."""
+    try:
+        from sqlalchemy.orm import Session
+
+        from tslab.db.models import CorrelationHistory, TsaHistory
+        from tslab.services.output_paths import output_ref
+
+        with Session(get_engine()) as session:
+            changed = 0
+            for row in session.scalars(select(CorrelationHistory)).all():
+                if not row.output_dir:
+                    continue
+                try:
+                    ref = output_ref(row.output_dir)
+                except ValueError:
+                    row.output_dir = None
+                    changed += 1
+                    continue
+                if ref != row.output_dir:
+                    row.output_dir = ref
+                    changed += 1
+            for row in session.scalars(select(TsaHistory)).all():
+                if not row.output_dir:
+                    continue
+                try:
+                    ref = output_ref(row.output_dir)
+                except ValueError:
+                    row.output_dir = None
+                    changed += 1
+                    continue
+                if ref != row.output_dir:
+                    row.output_dir = ref
+                    changed += 1
+            if changed:
+                session.commit()
+                _log.info("Schema migration: %s output_dir value(s) normalized", changed)
+    except Exception as exc:
+        _log.warning("Output-dir-Normalisierung uebersprungen: %s", exc)
 
 
 def _backfill_entity_categories() -> None:

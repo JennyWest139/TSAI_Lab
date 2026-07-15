@@ -10,7 +10,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from tslab.services.output_paths import browse_url_for, relative_output_path, resolve_output_dir_arg
+from tslab.services.output_paths import browse_url_for, output_ref, relative_output_path, resolve_output_dir_arg
 
 _log = logging.getLogger(__name__)
 
@@ -92,12 +92,11 @@ class RunTelemetryCollector:
         )
 
     def set_output(self, output_dir: str | Path, *, browse_url: str | None = None) -> None:
-        path = Path(output_dir).resolve()
-        self.data.output_dir = str(path)
-        rel = relative_output_path(path)
-        self.data.browse_url = browse_url or browse_url_for(str(path))
-        if rel:
-            self.data.links["Output-Ordner"] = self.data.browse_url or f"/output/browse/{rel}"
+        ref = output_ref(output_dir)
+        path = resolve_output_dir_arg(ref)
+        self.data.output_dir = ref
+        self.data.browse_url = browse_url or browse_url_for(ref)
+        self.data.links["Output-Ordner"] = self.data.browse_url or f"/output/browse/{ref}"
         self.data.links["Absoluter Pfad"] = str(path)
 
     def set_langfuse_status(self, status: dict[str, Any]) -> None:
@@ -217,7 +216,7 @@ class RunTelemetryCollector:
             basename = FINAL_RUN_REPORT_BASENAME
             link_label = "Laufbericht (PDF)"
             message_label = "Laufbericht"
-        out_dir = Path(self.data.output_dir) / subdir
+        out_dir = resolve_output_dir_arg(self.data.output_dir) / subdir
         out_path = out_dir / basename
         try:
             from tslab.services.run_report_pdf import write_run_report_pdf

@@ -48,6 +48,7 @@ from tslab.services.thesis_coefficients import (
     load_thesis_reference,
 )
 from tslab.services.output_naming import allocate_unique_output_folder, tsa_folder_name
+from tslab.services.output_paths import output_ref
 from tslab.services.order_selection import parse_order_list, resolve_orders
 from tslab.services.tsa_context import TSAContext, load_tsa_context
 
@@ -682,7 +683,7 @@ def run_tsa_job(
             train_end=ctx.study.cutoff.date(),
             forecast_end=ctx.study.forecast_end.date(),
             status="fertig",
-            output_dir=str(out),
+            output_dir=output_ref(out),
         )
         session.add(row)
         session.commit()

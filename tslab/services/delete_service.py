@@ -20,6 +20,7 @@ from tslab.services.entity_categories import (
     has_protected_category,
     list_category_names,
 )
+from tslab.services.output_paths import resolve_output_dir_arg
 
 DeleteScope = Literal["ui", "storage", "both"]
 
@@ -149,7 +150,10 @@ def preview_delete_tsa(session: Session, run_id: int, scope: DeleteScope) -> Del
 def _remove_output_dir(path_str: str | None) -> None:
     if not path_str:
         return
-    p = Path(path_str)
+    try:
+        p = resolve_output_dir_arg(path_str)
+    except ValueError:
+        return
     if p.is_dir():
         shutil.rmtree(p, ignore_errors=True)
 

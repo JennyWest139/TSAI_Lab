@@ -124,7 +124,7 @@ MOCK_CORRELATION_HISTORY: list[CorrelationRun] = [
         best_lag=3,
         best_r=0.412,
         created_at=datetime(2026, 6, 10, 14, 22),
-        output_dir="output/correlation_thesis_pdax_vs_erwerbslose_1991-01-01_to_2007-01-01",
+        output_dir="correlation_thesis_pdax_vs_erwerbslose_1991-01-01_to_2007-01-01",
     ),
     CorrelationRun(
         id=2,
@@ -137,7 +137,7 @@ MOCK_CORRELATION_HISTORY: list[CorrelationRun] = [
         best_lag=-2,
         best_r=-0.287,
         created_at=datetime(2026, 6, 8, 9, 15),
-        output_dir="output/correlation_thesis_dax_vs_erwerbslose_1991-01-01_to_2007-06-30",
+        output_dir="correlation_thesis_dax_vs_erwerbslose_1991-01-01_to_2007-06-30",
     ),
 ]
 
@@ -152,7 +152,7 @@ MOCK_TSA_HISTORY: list[TsaRun] = [
         forecast_end=date(2008, 7, 1),
         status="fertig",
         created_at=datetime(2026, 6, 11, 15, 28),
-        output_dir="output/tsa_thesis_1987-12-01_to_2006-07-01",
+        output_dir="tsa_thesis_1987-12-01_to_2006-07-01",
     ),
     TsaRun(
         id=2,
@@ -164,7 +164,7 @@ MOCK_TSA_HISTORY: list[TsaRun] = [
         forecast_end=date(2008, 7, 1),
         status="fertig",
         created_at=datetime(2026, 6, 9, 11, 5),
-        output_dir="output/tsa_thesis_1987-12-01_to_2007-07-01",
+        output_dir="tsa_thesis_1987-12-01_to_2007-07-01",
     ),
 ]
 

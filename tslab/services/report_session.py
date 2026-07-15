@@ -17,7 +17,7 @@ from tslab.services.ai_providers import (
     is_rate_limit_error,
     langfuse_configured,
 )
-from tslab.services.output_paths import relative_output_path, resolve_output_dir_arg
+from tslab.services.output_paths import relative_output_path, resolve_output_dir_arg, output_ref
 from tslab.services.report_docx import build_run_report_docx
 from tslab.services.report_ai_pdf import build_run_report_pdf
 from tslab.services.report_naming import (
@@ -697,7 +697,7 @@ def prepare_report_session(
                     "ok": True,
                     "status": "in_progress",
                     "message": "KI-Berichte werden bereits erstellt.",
-                    "output_dir": str(run_path),
+                    "output_dir": output_ref(run_path),
                 }
             active_session = load_session(run_path)
             active_model = active_session.model_id if active_session else (
@@ -716,7 +716,7 @@ def prepare_report_session(
                 "ok": True,
                 "status": "in_progress",
                 "message": "KI-Berichte werden bereits erstellt.",
-                "output_dir": str(run_path),
+                "output_dir": output_ref(run_path),
             }
     except ImportError:
         pass
@@ -753,7 +753,7 @@ def prepare_report_session(
                 f"Berichtssession wird fortgesetzt "
                 f"({done_targets}/{len(existing.targets)} Ziele, {total_tasks} KI-Schritte)."
             ),
-            "output_dir": str(run_path),
+            "output_dir": output_ref(run_path),
             "target_count": len(existing.targets),
             "total_tasks": total_tasks,
             "targets": [{"rel_path": t.rel_path, "title": t.title} for t in existing.targets],
@@ -843,7 +843,7 @@ def prepare_report_session(
         "ok": True,
         "status": "ready",
         "message": f"Berichtssession vorbereitet ({len(targets_data)} Ordner, {total_tasks} KI-Schritte).",
-        "output_dir": str(run_path),
+        "output_dir": output_ref(run_path),
         "target_count": len(targets_data),
         "total_tasks": total_tasks,
         "targets": [{"rel_path": t.rel_path, "title": t.title} for t in targets_data],

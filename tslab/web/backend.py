@@ -107,34 +107,44 @@ from tslab.web.csv_preview import (
     load_upload_dataframe,
     preview_upload_bytes,
 )
+from tslab.services.output_paths import browse_url_for, output_ref, relative_output_path, resolve_output_dir_arg
 from tslab.web.mock_data import FREQUENCY_OPTIONS, SeriesMeta, suggest_run_name
-from tslab.web.output_browser import browse_url_for, output_root, relative_output_path, zip_directory
+from tslab.web.output_browser import zip_directory
 
 
 def _run_report_url(output_dir: str | None) -> str | None:
     if not output_dir:
         return None
-    path = Path(output_dir) / "Reports" / "laufbericht.pdf"
+    try:
+        path = resolve_output_dir_arg(output_dir) / "Reports" / "laufbericht.pdf"
+    except ValueError:
+        return None
     if not path.is_file():
         return None
-    rel = relative_output_path(path)
-    return f"/output/file/{rel}" if rel else None
+    rel = output_ref(path)
+    return f"/output/file/{rel}"
 
 
 def _prep_run_report_url(output_dir: str | None) -> str | None:
     if not output_dir:
         return None
-    path = Path(output_dir) / "Reports" / "prep_laufbericht.pdf"
+    try:
+        path = resolve_output_dir_arg(output_dir) / "Reports" / "prep_laufbericht.pdf"
+    except ValueError:
+        return None
     if not path.is_file():
         return None
-    rel = relative_output_path(path)
-    return f"/output/file/{rel}" if rel else None
+    rel = output_ref(path)
+    return f"/output/file/{rel}"
 
 
 def _modellvergleich_url(output_dir: str | None) -> str | None:
     if not output_dir:
         return None
-    reports = Path(output_dir) / "Reports"
+    try:
+        reports = resolve_output_dir_arg(output_dir) / "Reports"
+    except ValueError:
+        return None
     if not reports.is_dir():
         return None
     pdfs = sorted(reports.glob("Modellvergleich_*.pdf"))
@@ -144,8 +154,8 @@ def _modellvergleich_url(output_dir: str | None) -> str | None:
             pdfs = [legacy]
         else:
             return None
-    rel = relative_output_path(pdfs[-1])
-    return f"/output/file/{rel}" if rel else None
+    rel = output_ref(pdfs[-1])
+    return f"/output/file/{rel}"
 from tslab.web.perf import log_timing
 from tslab.web.series_chart import build_pair_chart_payload, build_series_chart_payload
 from tslab.web.tsa_window_preview import build_tsa_window_preview
@@ -1185,7 +1195,7 @@ class WebBackend:
                     run_name=str(payload.get("run_name") or suggest_run_name(series_a, series_b)),
                 )
 
-        out = str(job.output_dir)
+        out = output_ref(job.output_dir)
         run_name = str(payload.get("run_name") or suggest_run_name(series_a, series_b))
         collector.set_run_settings(
             build_correlation_run_settings(
@@ -1350,7 +1360,7 @@ class WebBackend:
             )
         )
 
-        out = str(job.output_dir)
+        out = output_ref(job.output_dir)
         browse = browse_url_for(out)
         model_label = ", ".join(job.models_run)
         msg = f"TSA fertig: {series_slug.upper()} ({model_label})"
