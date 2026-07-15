@@ -219,7 +219,7 @@ def main() -> None:
     )
 
     lr = prepare_model_returns(train, mode_config)
-    returns_disp = returns_display(mode_config)
+    returns_disp = returns_display(mode_config, series_name="PDAX")
     _run_variant(
         lr,
         out / "pdax_log_returns",

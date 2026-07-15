@@ -11,7 +11,7 @@ from enum import Enum
 
 import pandas as pd
 
-from tslab.plots.series_display import PDAX_LOG_RETURNS, SeriesDisplay
+from tslab.plots.series_display import SeriesDisplay
 from tslab.services.transforms import log_returns, log_returns_detrended
 
 
@@ -119,14 +119,50 @@ def prepare_garch_input(
     return returns, 0.0
 
 
-def returns_display(mode_config: AnalysisModeConfig) -> SeriesDisplay:
+def returns_display(
+    mode_config: AnalysisModeConfig,
+    *,
+    series_name: str | None = None,
+) -> SeriesDisplay:
+    """Beschriftung fuer transformierte Renditen.
+
+    series_name=None: generische Texte (Korrelation zweier beliebiger Serien).
+    series_name gesetzt: serienspezifisch (TSA, Phase-0 PDAX).
+    """
+    if series_name is None:
+        if mode_config.mode is AnalysisMode.THESIS:
+            return SeriesDisplay(
+                short_name="kont. Renditen (Diplom)",
+                value_axis="Transformiert: diff(ln(P_t))",
+                data_basis=(
+                    "Bearbeitet: erste Differenz von ln(P_t), ohne lineare Trendentfernung "
+                    "(Modus: thesis / Diplomarbeit JW 2008)"
+                ),
+            )
+        return SeriesDisplay(
+            short_name="kont. Renditen (trendbereinigt)",
+            value_axis="Transformiert: diff(ln(P_t)), linear trendbereinigt",
+            data_basis=(
+                "Bearbeitet: erste Differenz von ln(P_t), "
+                "danach lineare Trendentfernung (Residuum) (Modus: extended)"
+            ),
+        )
+
+    sym = series_name.upper()
     if mode_config.mode is AnalysisMode.THESIS:
         return SeriesDisplay(
             short_name="kont. Renditen (Diplom)",
-            value_axis="Transformiert: diff(ln(PDAX))",
+            value_axis=f"Transformiert: diff(ln({sym}))",
             data_basis=(
-                "Bearbeitet: erste Differenz von ln(PDAX), ohne lineare Trendentfernung "
+                f"Bearbeitet: erste Differenz von ln({sym}), ohne lineare Trendentfernung "
                 "(Modus: thesis / Diplomarbeit JW 2008)"
             ),
         )
-    return PDAX_LOG_RETURNS
+    return SeriesDisplay(
+        short_name="kont. Renditen (trendbereinigt)",
+        value_axis=f"Transformiert: diff(ln({sym})), linear trendbereinigt",
+        data_basis=(
+            f"Bearbeitet: erste Differenz von ln({sym}), "
+            "danach lineare Trendentfernung (Residuum) (Modus: extended)"
+        ),
+    )

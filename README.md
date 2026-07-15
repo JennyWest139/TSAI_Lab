@@ -15,7 +15,7 @@ Zeitreihenanalyse nach Diplomarbeit JW 2008 (PDAX) – Python, PostgreSQL, spät
 2. In **pgAdmin** oder **psql** als `postgres` einloggen (Installations-Passwort).
 3. SQL ausfuehren: `scripts/sql/create_tslab_db.sql`  
    (legt User `tslab` / Passwort `tslab` und DB `tslab` an)
-4. Im Projekt (`use_sqlite: false` in `config/defaults.yaml`):
+4. Im Projekt (PostgreSQL-URL in `config/defaults.yaml` bzw. `.env`):
 
 ```powershell
 python scripts/db_check.py
@@ -39,19 +39,10 @@ PostgreSQL **läuft nicht** auf Ihrem PC. Zuerst prüfen:
 python scripts/db_check.py
 ```
 
-**Sofort testen (ohne DB):**
+**Sofort testen (ohne DB, nur CSV-Pipeline):**
 
 ```powershell
 python scripts/db_load_series.py pdax --from-csv --start 1987-12-01 --end 2007-06-30
-```
-
-**SQLite (ohne PostgreSQL-Server):**
-
-```powershell
-$env:TSLAB_DATABASE_URL = "sqlite:///data/tslab.db"
-python scripts/db_init.py
-python scripts/db_seed_werte.py
-python scripts/db_load_series.py pdax --start 1987-12-01 --end 2007-06-30
 ```
 
 ## PostgreSQL einrichten
@@ -59,7 +50,6 @@ python scripts/db_load_series.py pdax --start 1987-12-01 --end 2007-06-30
 ### 1. Datenbank starten (Docker)
 
 ```powershell
-cd Cursor_TSLab
 docker compose up -d
 ```
 
@@ -198,12 +188,12 @@ TSA-Formular gesteuert.
 
 ## Web-Dashboard (Flask + PostgreSQL)
 
-Standard in `config/defaults.yaml`: `database.use_sqlite: false`, URL `postgresql+psycopg2://tslab:tslab@localhost:5432/tslab`.
+Standard in `config/defaults.yaml`: URL `postgresql+psycopg2://tslab:tslab@localhost:5432/tslab`.
 
 ```powershell
 docker compose up -d
 python scripts/prepare_web_postgres.py
-python scripts/run_web.py --no-mock-fallback
+python scripts/run_web.py
 ```
 
 Ohne Docker (lokaler PostgreSQL-Dienst):
@@ -211,11 +201,11 @@ Ohne Docker (lokaler PostgreSQL-Dienst):
 ```powershell
 python scripts/setup_postgres.py
 python scripts/prepare_web_postgres.py
-python scripts/run_web.py --no-mock-fallback
+python scripts/run_web.py
 ```
 
-**Live (PostgreSQL):** Serienliste, Überlappung, Korrelation (`POST /api/correlation/run`), TSA (`POST /api/tsa/run`), Upload-Vorschau und CSV-Import.  
-**Mock-Fallback:** Nur wenn die DB nicht erreichbar ist (`--mock` erzwingt Mock; `--no-mock-fallback` erzwingt PostgreSQL).
+**Live (PostgreSQL erforderlich):** Serienliste, Überlappung, Korrelation (`POST /api/correlation/run`), TSA (`POST /api/tsa/run`), Upload-Vorschau und CSV-Import.  
+Ohne erreichbare DB startet das Web-Dashboard nicht (kein Mock-Fallback).
 
 ### Tags, Suche und Ergebnisordner
 
@@ -237,7 +227,7 @@ KI-Berichte sind standardmaessig deaktiviert. Aktivierung fuer das Web:
 ```powershell
 $env:TSLAB_AI_REPORTS_ENABLED = "1"
 $env:OPENAI_API_KEY = "sk-..."
-python scripts/run_web.py --no-mock-fallback
+python scripts/run_web.py
 ```
 
 Alternativ koennen die Werte in einer lokalen `.env` oder in

@@ -31,11 +31,8 @@ analysis_mode:
 
 # Datenbank (TSLAB_DATABASE_URL ueberschreibt alles)
 database:
-  # Standard: PostgreSQL (Web-Dashboard, Korrelation, TSA)
-  use_sqlite: false
+  # PostgreSQL (Web-Dashboard, Korrelation, TSA)
   url: "postgresql+psycopg2://tslab:tslab@localhost:5432/tslab"
-  sqlite_path: "data/tslab.db"
-  # SQLite nur bei Bedarf: use_sqlite: true  oder  TSLAB_USE_SQLITE=1
 
 # AI-Berichte (Phase 6)
 ai_reports:

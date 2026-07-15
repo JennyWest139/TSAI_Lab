@@ -6,7 +6,7 @@ import unittest
 
 import pandas as pd
 
-from tslab.services.analysis_mode import AnalysisMode, get_analysis_mode_config
+from tslab.services.analysis_mode import AnalysisMode, get_analysis_mode_config, returns_display
 from tslab.services.correlation import (
     compute_cross_correlation,
     prepare_correlation_returns,
@@ -64,6 +64,13 @@ class CrossCorrelationTests(unittest.TestCase):
         study = resolve_correlation_study_dates(a, b, start_date=start, end_date=end)
         self.assertEqual(study.start_date, pd.Timestamp("1987-12-31"))
         self.assertEqual(study.end_date, pd.Timestamp("2007-07-31"))
+
+    def test_correlation_data_basis_is_generic_without_pdax(self) -> None:
+        for mode in (AnalysisMode.THESIS, AnalysisMode.EXTENDED):
+            cfg = get_analysis_mode_config(mode)
+            disp = returns_display(cfg)
+            self.assertNotIn("PDAX", disp.data_basis)
+            self.assertIn("ln(P_t)", disp.data_basis)
 
 
 if __name__ == "__main__":

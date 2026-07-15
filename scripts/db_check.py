@@ -7,16 +7,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from tslab.db.engine import SETUP_HINT, check_connection, get_database_url, get_sqlite_file_path
+from tslab.db.engine import SETUP_HINT, check_connection, get_database_url
 
 
 def main() -> None:
     url = get_database_url()
     print(f"Datenbank-URL: {url}")
-    db_file = get_sqlite_file_path()
-    if db_file:
-        print(f"SQLite-Datei: {db_file}")
-        print(f"  existiert: {db_file.exists()}")
     try:
         check_connection()
     except Exception as exc:
@@ -27,9 +23,8 @@ def main() -> None:
 
     print("Status: OK – Verbindung erfolgreich")
     print("Naechste Schritte:")
-    if url.startswith("postgresql"):
-        print("  python scripts/prepare_web_postgres.py")
-        print("  python scripts/run_web.py --no-mock-fallback")
+    print("  python scripts/prepare_web_postgres.py")
+    print("  python scripts/run_web.py")
     print("  python scripts/db_init.py      (falls noch nicht geschehen)")
     print("  python scripts/db_seed_werte.py")
     print("  python scripts/db_list_series.py")

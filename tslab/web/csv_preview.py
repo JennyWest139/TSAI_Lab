@@ -12,7 +12,7 @@ from tslab.services.date_parse import (
 from tslab.services.frequency_detect import detect_frequency_from_dates
 from tslab.services.number_parse import DECIMAL_MODES, analyze_value_column, parse_locale_number
 from tslab.services.upload_io import load_upload_dataframe, read_raw_text
-from tslab.web.mock_data import FREQUENCY_OPTIONS
+from tslab.web.series_meta import FREQUENCY_OPTIONS
 
 _PREVIEW_LINES = 45
 

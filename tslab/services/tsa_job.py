@@ -86,8 +86,8 @@ def _level_context_kwargs(ctx: TSAContext, plot_window: ForecastPlotWindow) -> d
 
 
 def _forecast_ylabel(ctx: TSAContext) -> str:
-    disp = returns_display(ctx.mode_config)
-    if "diff(ln(PDAX))" in disp.value_axis:
+    disp = returns_display(ctx.mode_config, series_name=ctx.series_slug)
+    if "diff(ln(" in disp.value_axis:
         return "kont. Renditen"
     return disp.value_axis
 
@@ -137,7 +137,7 @@ def _run_arma(
     res, fitted = fit_arma(train_lr, order=(p, q))
     model_dir = out / f"arma{p}{q}"
     model_dir.mkdir(parents=True, exist_ok=True)
-    display = returns_display(ctx.mode_config)
+    display = returns_display(ctx.mode_config, series_name=ctx.series_slug)
 
     plot_series(train_lr, model_dir / "series_train.png", display)
     resid_display = SeriesDisplay(
@@ -225,7 +225,7 @@ def _run_garch(
     fit = fit_garch(train_lr, ctx.mode_config, p=p, q=q)
     model_dir = out / f"garch{p}{q}"
     model_dir.mkdir(parents=True, exist_ok=True)
-    display = returns_display(ctx.mode_config)
+    display = returns_display(ctx.mode_config, series_name=ctx.series_slug)
 
     plot_conditional_volatility(
         fit.conditional_volatility,
@@ -324,7 +324,7 @@ def _run_arma_garch(
     tag = f"arma{arma_p}{arma_q}_garch{garch_p}{garch_q}"
     model_dir = out / tag
     model_dir.mkdir(parents=True, exist_ok=True)
-    display = returns_display(ctx.mode_config)
+    display = returns_display(ctx.mode_config, series_name=ctx.series_slug)
 
     std_disp = _std_residual_display(display, fit.label)
     diag: ResidualDiagnosticResults

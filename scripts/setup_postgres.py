@@ -67,7 +67,6 @@ def ensure_role_and_database() -> None:
 def main() -> None:
     os.environ.pop("TSLAB_DATABASE_URL", None)
     cfg = load_defaults()
-    cfg["database"]["use_sqlite"] = False
 
     target = cfg.get("database", {}).get(
         "url", "postgresql+psycopg2://tslab:tslab@localhost:5432/tslab"

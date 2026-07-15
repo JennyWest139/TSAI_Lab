@@ -1,4 +1,4 @@
-"""Flask-App: Dashboard-Oberflaeche (UI + DB/Mock-API)."""
+"""Flask-App: Dashboard-Oberflaeche (UI + PostgreSQL-API)."""
 
 from __future__ import annotations
 
@@ -10,8 +10,8 @@ from flask import Flask, jsonify, render_template, request, send_file
 from tslab.config_loader import load_dotenv_file
 from tslab.services.report_service import load_report_config
 from tslab.services.output_paths import output_ref
-from tslab.web import mock_data as mock
 from tslab.web.backend import WebBackend
+from tslab.web.series_meta import TSA_MODELS, series_to_dict
 from tslab.web.output_browser import list_directory, resolve_output_path, serve_output_file, zip_directory
 from tslab.services.order_selection import order_table_rows
 from tslab.web.perf import configure_perf_logging
@@ -27,7 +27,7 @@ def _parse_output_dir(body: dict) -> str:
     return output_ref(raw)
 
 
-def create_app(*, use_mock: bool = False) -> Flask:
+def create_app() -> Flask:
     load_dotenv_file()
     configure_perf_logging()
     app = Flask(
@@ -38,14 +38,13 @@ def create_app(*, use_mock: bool = False) -> Flask:
     app.config["SECRET_KEY"] = "tslab-dev-ui-only"
     app.config["MAX_CONTENT_LENGTH"] = 32 * 1024 * 1024
 
-    backend = WebBackend(use_mock=use_mock)
+    backend = WebBackend()
     app.extensions["tslab_backend"] = backend
 
     @app.context_processor
     def inject_backend():
         return {
             "backend_mode": backend.mode_label,
-            "uses_mock": backend.uses_mock,
             "ai_reports_enabled": backend.ai_reports_enabled,
             "report_models": backend.list_report_models(),
             "all_tags": backend.all_tags(),
@@ -59,7 +58,7 @@ def create_app(*, use_mock: bool = False) -> Flask:
         tag = _active_tag()
         include_hidden = request.args.get("include_hidden", "0") in ("1", "true", "yes")
         return [
-            mock.series_to_dict(s)
+            series_to_dict(s)
             for s in backend.list_series(tag=tag, include_hidden=include_hidden)
         ]
 
@@ -129,7 +128,7 @@ def create_app(*, use_mock: bool = False) -> Flask:
             "tsa.html",
             page="tsa",
             series=backend.list_series(),
-            models=mock.TSA_MODELS,
+            models=TSA_MODELS,
             order_rows=order_table_rows(),
         )
 
@@ -255,7 +254,7 @@ def create_app(*, use_mock: bool = False) -> Flask:
 
     @app.get("/api/tsa/models")
     def api_tsa_models():
-        return jsonify(mock.TSA_MODELS)
+        return jsonify(TSA_MODELS)
 
     @app.get("/api/tsa/history")
     def api_tsa_history():
@@ -424,7 +423,6 @@ def create_app(*, use_mock: bool = False) -> Flask:
     def api_backend_status():
         return jsonify(
             {
-                "uses_mock": backend.uses_mock,
                 "mode_label": backend.mode_label,
                 "database_url": backend.database_url,
                 "database_kind": backend.database_kind,

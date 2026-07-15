@@ -6,7 +6,7 @@ Voraussetzung: PostgreSQL laeuft (Docker oder lokale Installation).
 
   docker compose up -d
   python scripts/prepare_web_postgres.py
-  python scripts/run_web.py --no-mock-fallback
+  python scripts/run_web.py
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ def main() -> None:
     url = get_database_url()
     if not url.startswith("postgresql"):
         print(f"Hinweis: Aktive URL ist nicht PostgreSQL: {url}")
-        print("Setzen Sie in config/defaults.yaml: database.use_sqlite: false")
+        print("Setzen Sie in config/defaults.yaml: database.url")
         print("Oder: $env:TSLAB_DATABASE_URL = 'postgresql+psycopg2://tslab:tslab@localhost:5432/tslab'")
         sys.exit(1)
 
@@ -55,7 +55,7 @@ def main() -> None:
 
     print()
     print("Web-Dashboard starten:")
-    print("  python scripts/run_web.py --no-mock-fallback")
+    print("  python scripts/run_web.py")
 
 
 if __name__ == "__main__":

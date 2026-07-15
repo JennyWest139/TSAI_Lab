@@ -1,4 +1,4 @@
-"""Web-Backend: DB-Services mit Mock-Fallback."""
+"""Web-Backend: DB-Services fuer PostgreSQL."""
 
 from __future__ import annotations
 
@@ -10,14 +10,11 @@ from pathlib import Path
 from sqlalchemy import func, select
 
 from tslab.db.engine import (
-    DatabaseConnectionError,
     check_connection,
     get_database_display_name,
     get_database_kind,
     get_database_url,
     get_session,
-    get_sqlite_file_path,
-    reset_engine_cache,
 )
 from tslab.db.models import Category, CorrelationHistory, Observation, TimeSeries, TsaHistory
 from tslab.services.analysis_mode import (
@@ -26,7 +23,6 @@ from tslab.services.analysis_mode import (
     resolve_study_dates_for_mode,
 )
 from tslab.services.category_service import (
-    PROTECTED_CATEGORY,
     create_category,
     delete_category,
     get_category,
@@ -100,7 +96,6 @@ from tslab.services.timeseries_store import (
     list_series,
     load_series_full_pandas,
 )
-from tslab.web import mock_data as mock
 from tslab.web.csv_preview import (
     date_detection_for_column,
     decimal_detection_for_column,
@@ -108,7 +103,13 @@ from tslab.web.csv_preview import (
     preview_upload_bytes,
 )
 from tslab.services.output_paths import browse_url_for, output_ref, relative_output_path, resolve_output_dir_arg
-from tslab.web.mock_data import FREQUENCY_OPTIONS, SeriesMeta, suggest_run_name
+from tslab.web.series_meta import (
+    FREQUENCY_OPTIONS,
+    PROTECTED_TAG,
+    SeriesMeta,
+    series_to_dict,
+    suggest_run_name,
+)
 from tslab.web.output_browser import zip_directory
 
 
@@ -192,7 +193,7 @@ class CorrelationRunView:
 
     @property
     def has_reporting(self) -> bool:
-        return PROTECTED_CATEGORY in self.tags
+        return PROTECTED_TAG in self.tags
 
     @property
     def browse_url(self) -> str | None:
@@ -240,7 +241,7 @@ class TsaRunView:
 
     @property
     def has_reporting(self) -> bool:
-        return PROTECTED_CATEGORY in self.tags
+        return PROTECTED_TAG in self.tags
 
     @property
     def browse_url(self) -> str | None:
@@ -289,10 +290,7 @@ def _ts_to_meta(session, ts: TimeSeries, *, dates: list[date] | None = None) -> 
         source_file=ts.source_file,
         id=ts.id,
         tags=cat_names,
-        category_id=cat_ids[0] if cat_ids else ts.category_id,
-        category_name=", ".join(cat_names) if cat_names else None,
-        category_ids=tuple(cat_ids),
-        category_names=cat_names,
+        tag_ids=tuple(cat_ids),
         created_at=ts.created_at,
     )
 
@@ -364,82 +362,24 @@ def _overlap_observation_count(session, series_a_id: int, series_b_id: int, star
 
 
 class WebBackend:
-    """Liest Serien/Historie aus der DB; optional Mock-Fallback."""
+    """Liest Serien und Historie aus PostgreSQL."""
 
-    def __init__(self, *, use_mock: bool = False) -> None:
-        self._force_mock = use_mock
-        self._db_ok: bool | None = None if not use_mock else False
+    def __init__(self) -> None:
+        check_connection()
+        from tslab.db.migrate import migrate_schema
 
-    def _probe_db(self) -> bool:
-        if self._force_mock:
-            return False
-        if self._db_ok is True:
-            return True
-        # Bei Fehlschlag nicht dauerhaft cachen — DB kann spaeter hochfahren
-        try:
-            check_connection()
-            from tslab.db.migrate import migrate_schema
-
-            migrate_schema()
-            self._db_ok = True
-            return True
-        except (DatabaseConnectionError, OSError):
-            if self._try_sqlite_fallback():
-                self._db_ok = True
-                return True
-            return False
-
-    def _try_sqlite_fallback(self) -> bool:
-        """PostgreSQL nicht erreichbar — vor Mock-Fallback lokale SQLite versuchen."""
-        import os
-
-        url = get_database_url()
-        if url.startswith("sqlite"):
-            return False
-        sqlite_path = get_sqlite_file_path()
-        if sqlite_path is None:
-            from tslab.config_loader import project_root
-
-            sqlite_path = (project_root() / "data" / "tslab.db").resolve()
-        if not sqlite_path.is_file():
-            return False
-        os.environ["TSLAB_DATABASE_URL"] = f"sqlite:///{sqlite_path.as_posix()}"
-        reset_engine_cache()
-        try:
-            check_connection()
-            from tslab.db.migrate import migrate_schema
-
-            migrate_schema()
-            return True
-        except (DatabaseConnectionError, OSError):
-            return False
-
-    @property
-    def uses_mock(self) -> bool:
-        return not self._probe_db()
+        migrate_schema()
 
     @property
     def mode_label(self) -> str:
-        if self._force_mock:
-            return "Mock-Daten (erzwungen)"
-        if self.uses_mock:
-            expected = get_database_display_name()
-            return f"Mock-Daten ({expected} nicht erreichbar)"
-        kind = get_database_kind()
-        if kind == "sqlite":
-            return "SQLite (lokale Datei)"
         return get_database_display_name()
 
     @property
-    def database_url(self) -> str | None:
-        if self.uses_mock:
-            return None
+    def database_url(self) -> str:
         return get_database_url()
 
     @property
-    def database_kind(self) -> str | None:
-        if self.uses_mock:
-            return None
+    def database_kind(self) -> str:
         return get_database_kind()
 
     def list_series(
@@ -448,8 +388,6 @@ class WebBackend:
         tag: str | None = None,
         include_hidden: bool = False,
     ) -> list[SeriesMeta]:
-        if self.uses_mock:
-            return mock.mock_list_series(tag=tag)
         with get_session() as session:
             rows = list_series(session)
             if not include_hidden:
@@ -463,34 +401,16 @@ class WebBackend:
             return [_ts_to_meta(session, ts) for ts in rows]
 
     def all_tags(self) -> list[str]:
-        if self.uses_mock:
-            return mock.mock_all_tags()
         with get_session() as session:
             return [c.name for c in list_categories(session)]
 
     def series_by_slug(self, slug: str) -> SeriesMeta | None:
-        if self.uses_mock:
-            return mock.series_by_slug(slug)
         with get_session() as session:
             ts = get_series_by_slug(session, slug)
             return _ts_to_meta(session, ts) if ts else None
 
     def series_dates(self, slug: str) -> list[str]:
         with log_timing("series.dates", slug=slug):
-            if self.uses_mock:
-                s = mock.series_by_slug(slug)
-                if s is None:
-                    return []
-                dates: list[date] = []
-                d = s.first_date
-                while d <= s.last_date:
-                    dates.append(d)
-                    if d.month == 12:
-                        d = date(d.year + 1, 1, 1)
-                    else:
-                        d = date(d.year, d.month + 1, 1)
-                return [x.isoformat() for x in dates]
-
             with get_session() as session:
                 ts = get_series_by_slug(session, slug)
                 if ts is None:
@@ -502,15 +422,12 @@ class WebBackend:
         s = self.series_by_slug(slug)
         if s is None:
             return None
-        return mock.series_to_dict(s)
+        return series_to_dict(s)
 
     def _overlap_context(
         self, slug_a: str, slug_b: str, *, frequency: str | None = None
     ) -> dict | None:
         with log_timing("overlap.context", a=slug_a, b=slug_b, frequency=frequency):
-            if self.uses_mock:
-                return mock.pair_overlap(slug_a, slug_b)
-
             with get_session() as session:
                 ts_a = get_series_by_slug(session, slug_a)
                 ts_b = get_series_by_slug(session, slug_b)
@@ -544,8 +461,8 @@ class WebBackend:
                 if ctx is None:
                     return None
 
-                a_dict = mock.series_to_dict(_ts_to_meta(session, ts_a, dates=dates_a))
-                b_dict = mock.series_to_dict(_ts_to_meta(session, ts_b, dates=dates_b))
+                a_dict = series_to_dict(_ts_to_meta(session, ts_a, dates=dates_a))
+                b_dict = series_to_dict(_ts_to_meta(session, ts_b, dates=dates_b))
                 return {
                     "series_a": a_dict,
                     "series_b": b_dict,
@@ -613,9 +530,6 @@ class WebBackend:
         encoding: str = "utf-8-sig",
         decimal_mode: str = "auto",
     ) -> dict:
-        if self.uses_mock:
-            return mock.mock_upload_result(filename)
-
         name = (series_name or value_column).strip()
         with get_session() as session:
             ts = import_series_from_upload(
@@ -637,7 +551,7 @@ class WebBackend:
         return {
             "ok": True,
             "message": f"Importiert: {meta.label_de} ({meta.observation_count} Werte)",
-            "series": mock.series_to_dict(meta),
+            "series": series_to_dict(meta),
             "redirect_url": f"/series/{meta.slug}",
         }
 
@@ -833,8 +747,6 @@ class WebBackend:
         return result
 
     def list_categories(self) -> list[dict]:
-        if self.uses_mock:
-            return mock.mock_list_categories()
         with get_session() as session:
             return [
                 {
@@ -852,22 +764,16 @@ class WebBackend:
         clean = name.strip()
         if not clean:
             raise ValueError("Kategoriename fehlt.")
-        if self.uses_mock:
-            return mock.mock_create_category(clean)
         with get_session() as session:
             row = create_category(session, clean)
             return {"ok": True, "id": row.id, "name": row.name}
 
     def update_category_entry(self, category_id: int, name: str) -> dict:
-        if self.uses_mock:
-            return mock.mock_update_category(category_id, name)
         with get_session() as session:
             row = update_category(session, category_id, name)
             return {"ok": True, "id": row.id, "name": row.name}
 
     def delete_category_entry(self, category_id: int) -> dict:
-        if self.uses_mock:
-            return mock.mock_delete_category(category_id)
         with get_session() as session:
             delete_category(session, category_id)
             return {"ok": True}
@@ -876,8 +782,6 @@ class WebBackend:
         clean = name.strip()
         if not clean:
             raise ValueError("Name darf nicht leer sein.")
-        if self.uses_mock:
-            return mock.mock_update_series_meta(slug, name=clean)
         with get_session() as session:
             ts = get_series_by_slug(session, slug)
             if ts is None:
@@ -885,7 +789,7 @@ class WebBackend:
             ts.name = clean
             session.commit()
             session.refresh(ts)
-            return {"ok": True, "series": mock.series_to_dict(_ts_to_meta(session, ts))}
+            return {"ok": True, "series": series_to_dict(_ts_to_meta(session, ts))}
 
     def list_correlation_history(
         self,
@@ -893,36 +797,6 @@ class WebBackend:
         tag: str | None = None,
         include_hidden: bool = False,
     ) -> list[CorrelationRunView]:
-        if self.uses_mock:
-            runs = [
-                CorrelationRunView(
-                    id=r.id,
-                    series_a=r.series_a,
-                    series_b=r.series_b,
-                    start_date=r.start_date,
-                    end_date=r.end_date,
-                    analysis_mode=r.analysis_mode,
-                    max_lag=r.max_lag,
-                    best_lag=r.best_lag,
-                    best_r=r.best_r,
-                    created_at=r.created_at,
-                    output_dir=r.output_dir,
-                    run_name=suggest_run_name(r.series_a, r.series_b),
-                    tags=tuple(mock.mock_run_category_names("correlation", r.id)),
-                    category_ids=tuple(mock.mock_entity_category_ids("correlation", r.id)),
-                    reporting_status=inspect_reporting_status(r.output_dir),
-                )
-                for r in mock.MOCK_CORRELATION_HISTORY
-            ]
-            if tag:
-                runs = [
-                    r
-                    for r in runs
-                    if tag in r.tags
-                    or mock.mock_run_matches_tag("correlation", r.id, [r.series_a, r.series_b], tag)
-                ]
-            return runs
-
         with get_session() as session:
             q = select(CorrelationHistory).order_by(CorrelationHistory.created_at.desc())
             rows = list(session.scalars(q).all())
@@ -967,34 +841,6 @@ class WebBackend:
         tag: str | None = None,
         include_hidden: bool = False,
     ) -> list[TsaRunView]:
-        if self.uses_mock:
-            views = [
-                TsaRunView(
-                    id=r.id,
-                    series_slug=r.series_slug,
-                    models=list(r.models),
-                    analysis_mode=r.analysis_mode,
-                    train_start=r.train_start,
-                    train_end=r.train_end,
-                    forecast_end=r.forecast_end,
-                    status=r.status,
-                    created_at=r.created_at,
-                    output_dir=r.output_dir,
-                    tags=tuple(mock.mock_run_category_names("tsa", r.id)),
-                    category_ids=tuple(mock.mock_entity_category_ids("tsa", r.id)),
-                    reporting_status=inspect_reporting_status(r.output_dir),
-                )
-                for r in mock.MOCK_TSA_HISTORY
-            ]
-            if tag:
-                views = [
-                    v
-                    for v in views
-                    if tag in v.tags
-                    or mock.mock_run_matches_tag("tsa", v.id, [v.series_slug], tag)
-                ]
-            return views
-
         with get_session() as session:
             rows = list(
                 session.scalars(
@@ -1039,8 +885,6 @@ class WebBackend:
             return views
 
     def _load_series_pandas(self, slug: str):
-        if self.uses_mock:
-            return mock.mock_series_pandas(slug)
         with get_session() as session:
             return load_series_full_pandas(session, slug)
 
@@ -1118,18 +962,6 @@ class WebBackend:
         )
 
     def run_correlation(self, payload: dict) -> dict:
-        if self.uses_mock:
-            return {
-                "ok": True,
-                "status": "simulated",
-                "message": "Korrelation simuliert (Mock-Modus)",
-                "job": {
-                    **payload,
-                    "started_at": datetime.now().isoformat(),
-                    "output_preview": "output/correlation_thesis_.../",
-                },
-            }
-
         series_a = str(payload.get("series_a", "")).strip()
         series_b = str(payload.get("series_b", "")).strip()
         if not series_a or not series_b:
@@ -1254,18 +1086,6 @@ class WebBackend:
         )
 
     def run_tsa(self, payload: dict) -> dict:
-        if self.uses_mock:
-            return {
-                "ok": True,
-                "status": "simulated",
-                "message": "TSA simuliert (Mock-Modus)",
-                "job": {
-                    **payload,
-                    "started_at": datetime.now().isoformat(),
-                    "output_preview": "output/tsa_thesis_1987-12-01_to_2006-07-01/",
-                },
-            }
-
         series_slug = str(payload.get("series_slug", "")).strip()
         if not series_slug:
             raise ValueError("series_slug ist erforderlich.")
@@ -1401,19 +1221,6 @@ class WebBackend:
         )
 
     def tsa_window_preview(self, params: dict) -> dict:
-        if self.uses_mock:
-            slug = str(params.get("series_slug", "pdax"))
-            series = self._load_series_pandas(slug)
-            dates = [d.date().isoformat() for d in series.index]
-            values = [round(float(v), 6) for v in series.values]
-            return {
-                "slug": slug,
-                "dates": dates,
-                "values": values,
-                "regions": [],
-                "plot_region": None,
-                "observation_count": len(dates),
-            }
         analysis_mode, mode_config = _mode_config_from_payload(params)
         with get_session() as session:
             return build_tsa_window_preview(
@@ -1485,10 +1292,6 @@ class WebBackend:
             if raw in (None, "", "null"):
                 continue
             category_ids.append(int(raw))
-        if self.uses_mock:
-            eid: int | str = str(entity_id) if entity_type == ENTITY_SERIES else int(entity_id)
-            names = mock.mock_set_entity_categories(entity_type, eid, category_ids)
-            return {"ok": True, "tags": names, "category_ids": category_ids}
         with get_session() as session:
             if entity_type == ENTITY_SERIES:
                 ts = get_series_by_slug(session, str(entity_id))
@@ -1503,8 +1306,6 @@ class WebBackend:
         return {"ok": True, "tags": names, "category_ids": category_ids}
 
     def tag_suggestions(self, prefix: str = "") -> list[str]:
-        if self.uses_mock:
-            return mock.mock_all_tags()
         with get_session() as session:
             cats = list_categories(session)
             if prefix:

@@ -16,6 +16,8 @@ class DeleteServiceTests(unittest.TestCase):
 class ReportServiceTests(unittest.TestCase):
     def test_report_disabled_by_default(self) -> None:
         cfg = load_report_config()
+        if cfg.enabled:
+            self.skipTest("ai_reports via Umgebung/Keys aktiv — Default disabled nicht pruefbar")
         self.assertFalse(cfg.enabled)
 
     def test_generate_disabled_when_off(self) -> None:

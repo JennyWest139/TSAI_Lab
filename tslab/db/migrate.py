@@ -6,18 +6,18 @@ import logging
 
 from sqlalchemy import inspect, select, text
 
-from tslab.db.engine import get_database_kind, get_engine
+from tslab.db.engine import get_engine
 from tslab.db.models import Base
 
 _log = logging.getLogger(__name__)
 
-# (table, column, postgres_ddl, sqlite_ddl)
-_COLUMN_MIGRATIONS: tuple[tuple[str, str, str, str], ...] = (
-    ("time_series", "hidden_at", "hidden_at TIMESTAMPTZ", "hidden_at DATETIME"),
-    ("correlation_history", "analysis_mode", "analysis_mode VARCHAR(32)", "analysis_mode VARCHAR(32)"),
-    ("correlation_history", "run_name", "run_name VARCHAR(256)", "run_name VARCHAR(256)"),
-    ("correlation_history", "hidden_at", "hidden_at TIMESTAMPTZ", "hidden_at DATETIME"),
-    ("time_series", "category_id", "category_id INTEGER REFERENCES categories(id)", "category_id INTEGER"),
+# (table, column, postgres_ddl)
+_COLUMN_MIGRATIONS: tuple[tuple[str, str, str], ...] = (
+    ("time_series", "hidden_at", "hidden_at TIMESTAMPTZ"),
+    ("correlation_history", "analysis_mode", "analysis_mode VARCHAR(32)"),
+    ("correlation_history", "run_name", "run_name VARCHAR(256)"),
+    ("correlation_history", "hidden_at", "hidden_at TIMESTAMPTZ"),
+    ("time_series", "category_id", "category_id INTEGER REFERENCES categories(id)"),
 )
 
 
@@ -39,13 +39,11 @@ def _add_column_if_missing(table: str, column: str, ddl: str) -> bool:
 
 def migrate_columns() -> list[str]:
     """ALTER TABLE fuer fehlende Spalten an bestehenden Tabellen."""
-    kind = get_database_kind()
     applied: list[str] = []
-    for table, column, pg_ddl, sqlite_ddl in _COLUMN_MIGRATIONS:
+    for table, column, pg_ddl in _COLUMN_MIGRATIONS:
         if table not in inspect(get_engine()).get_table_names():
             continue
-        ddl = pg_ddl if kind == "postgresql" else sqlite_ddl
-        if _add_column_if_missing(table, column, ddl):
+        if _add_column_if_missing(table, column, pg_ddl):
             applied.append(f"{table}.{column}")
     return applied
 

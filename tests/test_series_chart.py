@@ -3,16 +3,24 @@
 from __future__ import annotations
 
 import unittest
+from datetime import date
 
+import numpy as np
 import pandas as pd
 
-from tslab.web import mock_data as mock
 from tslab.web.series_chart import build_pair_chart_payload, build_series_chart_payload
+
+
+def _synthetic_series(slug: str, n: int = 60, *, base: float = 100.0) -> pd.Series:
+    idx = pd.date_range("2000-01-01", periods=n, freq="MS")
+    t = np.arange(n, dtype=float)
+    values = base * np.exp(0.002 * t) + np.sin(t / 5.0)
+    return pd.Series(values, index=idx, name=slug)
 
 
 class SeriesChartTests(unittest.TestCase):
     def test_build_series_chart_payload(self) -> None:
-        series = mock.mock_series_pandas("pdax")
+        series = _synthetic_series("pdax", base=120.0)
         data = build_series_chart_payload(
             series,
             slug="pdax",
@@ -25,7 +33,7 @@ class SeriesChartTests(unittest.TestCase):
         self.assertIn("Trendkomponente", data["trend_note"])
 
     def test_build_series_chart_with_returns(self) -> None:
-        series = mock.mock_series_pandas("pdax")
+        series = _synthetic_series("pdax", base=120.0)
         data = build_series_chart_payload(
             series,
             slug="pdax",
@@ -37,10 +45,8 @@ class SeriesChartTests(unittest.TestCase):
         self.assertGreater(len(data["returns"]["dates"]), 0)
 
     def test_build_pair_chart_payload(self) -> None:
-        a = mock.mock_series_pandas("pdax")
-        b = mock.mock_series_pandas("erwerbslose")
-        overlap = mock.pair_overlap("pdax", "erwerbslose")
-        assert overlap is not None
+        a = _synthetic_series("pdax", base=120.0)
+        b = _synthetic_series("erwerbslose", base=8.5)
         data = build_pair_chart_payload(
             a,
             b,
@@ -48,8 +54,8 @@ class SeriesChartTests(unittest.TestCase):
             slug_b="erwerbslose",
             label_a="PDAX",
             label_b="Erwerbslose",
-            start=overlap["overlap_start"],
-            end=overlap["overlap_end"],
+            start="2000-01-01",
+            end="2004-12-01",
         )
         self.assertIn("series_a", data)
         self.assertIn("series_b", data)
@@ -58,7 +64,7 @@ class SeriesChartTests(unittest.TestCase):
         self.assertTrue(data["returns_recommended"])
 
     def test_returns_recommended_for_rates(self) -> None:
-        series = mock.mock_series_pandas("erwerbslose")
+        series = _synthetic_series("erwerbslose", base=8.5)
         data = build_series_chart_payload(
             series,
             slug="erwerbslose",
@@ -68,8 +74,6 @@ class SeriesChartTests(unittest.TestCase):
 
     def test_month_end_dates(self) -> None:
         """Monatsend-Daten (typisch beim Upload) duerfen Grafik nicht blockieren."""
-        from datetime import date
-
         dates = [
             date(1991, 1, 31),
             date(1991, 2, 28),
@@ -96,7 +100,7 @@ class SeriesChartTests(unittest.TestCase):
         self.assertIn("Trendkomponente", data["trend_note"])
 
     def test_slice_window(self) -> None:
-        series = mock.mock_series_pandas("dax")
+        series = _synthetic_series("dax", base=1500.0)
         idx = pd.DatetimeIndex(series.index)
         start = idx[10].date().isoformat()
         end = idx[20].date().isoformat()
