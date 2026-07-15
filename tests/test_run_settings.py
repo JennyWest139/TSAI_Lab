@@ -96,10 +96,10 @@ class RunReportUiSettingsPdfTests(unittest.TestCase):
             self.assertGreater(path.stat().st_size, 400)
 
     def test_collector_persists_ui_settings_in_pending(self) -> None:
+        from tests.helpers_output import temp_output_run
         from tslab.services.run_telemetry import load_pending_collector, save_pending_collector
 
-        with tempfile.TemporaryDirectory() as tmp:
-            out = Path(tmp)
+        with temp_output_run("pending_ui_run") as out:
             collector = RunTelemetryCollector(run_type="Korrelation")
             collector.set_run_settings([("Serie A", "pdax"), ("Serie B", "dax")])
             save_pending_collector(collector, out)

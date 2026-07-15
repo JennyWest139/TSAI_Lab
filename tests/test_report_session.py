@@ -40,8 +40,9 @@ class ReportSessionDiscoveryTests(unittest.TestCase):
             self.assertEqual(len(targets), 2)
 
     def test_tsa_comparison_target(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+        from tests.helpers_output import temp_output_run
+
+        with temp_output_run("tsa_cmp_run") as root:
             for name in ("arma11", "garch11"):
                 d = root / name
                 d.mkdir()
@@ -75,8 +76,9 @@ class ReportSessionDiscoveryTests(unittest.TestCase):
         self.assertNotIn("9.70", trimmed)
 
     def test_filter_model_dirs_by_ui_selection(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+        from tests.helpers_output import temp_output_run
+
+        with temp_output_run("tsa_filter_run") as root:
             for name in ("arma11", "garch11", "decomp_additive"):
                 d = root / name
                 d.mkdir()

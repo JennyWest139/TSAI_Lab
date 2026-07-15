@@ -70,7 +70,9 @@ class GenerateRunReportTests(unittest.TestCase):
         self.assertEqual(result["status"], "disabled")
 
     def test_empty_folder_error(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
+        from tests.helpers_output import temp_output_run
+
+        with temp_output_run("empty_report_run") as run:
             with patch("tslab.services.report_service.load_report_config") as mock_cfg:
                 mock_cfg.return_value = MagicMock(
                     enabled=True,
@@ -85,7 +87,7 @@ class GenerateRunReportTests(unittest.TestCase):
                     models=(),
                 )
                 result = generate_run_report(
-                    tmp, model_id="openai:gpt-4o-mini"
+                    run, model_id="openai:gpt-4o-mini"
                 )
         self.assertFalse(result["ok"])
         self.assertIn("Keine Berichtsziele", result["message"])

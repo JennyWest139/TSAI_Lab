@@ -35,8 +35,9 @@ class ReportModelSingleTests(unittest.TestCase):
             self.assertFalse((root / "CORR_AI_Bericht_GPT-4o-mini.docx").exists())
 
     def test_resolve_model_from_pending_run(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+        from tests.helpers_output import temp_output_run
+
+        with temp_output_run("pending_model_run") as root:
             collector = RunTelemetryCollector(run_type="Korrelation")
             collector.data.extra["report_model_id"] = "gemini:gemini-3.1-flash-lite"
             save_pending_collector(collector, root)
@@ -50,8 +51,9 @@ class ReportModelSingleTests(unittest.TestCase):
             self.assertEqual(explicit, "openai:gpt-4o-mini")
 
     def test_resolve_without_pending_returns_none(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+        from tests.helpers_output import temp_output_run
+
+        with temp_output_run("no_pending_run") as root:
             self.assertIsNone(resolve_run_report_model_id(root, None))
 
 
